@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>eh2-cosim-veri 设计与使用文档</title>
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --ink: #1f2933;
+      --muted: #5f6b7a;
+      --line: #d8dee7;
+      --accent: #1464a5;
+      --accent-soft: #e8f2fb;
+      --code-bg: #111827;
+      --code-ink: #e5e7eb;
+      --warn-bg: #fff7e6;
+      --warn-line: #f0b84b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC",
+        "Microsoft YaHei", Arial, sans-serif;
+      line-height: 1.72;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    nav {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 22px;
+      overflow-y: auto;
+      background: #17212f;
+      color: #dbe5f0;
+      border-right: 1px solid #0f1722;
+    }
+
+    nav h1 {
+      margin: 0 0 4px;
+      font-size: 20px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    nav .sub {
+      margin: 0 0 22px;
+      color: #aebccc;
+      font-size: 13px;
+    }
+
+    nav a {
+      display: block;
+      padding: 7px 9px;
+      color: #dbe5f0;
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    nav a:hover,
+    nav a.active {
+      background: #243247;
+      color: #ffffff;
+    }
+
+    nav .group {
+      margin: 18px 0 8px;
+      color: #7fb4e8;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    main {
+      max-width: 1120px;
+      width: 100%;
+      padding: 42px 48px 80px;
+    }
+
+    section {
+      margin: 0 0 46px;
+      padding: 28px 30px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    section section {
+      margin: 28px 0 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+    }
+
+    h2, h3, h4 {
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 18px;
+      font-size: 28px;
+    }
+
+    h3 {
+      margin: 28px 0 12px;
+      font-size: 21px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 8px;
+    }
+
+    h4 {
+      margin: 22px 0 8px;
+      font-size: 17px;
+    }
+
+    p {
+      margin: 10px 0;
+    }
+
+    a {
+      color: var(--accent);
+    }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.92em;
+      background: #eef2f6;
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+
+    pre {
+      margin: 14px 0;
+      padding: 16px 18px;
+      overflow-x: auto;
+      color: var(--code-ink);
+      background: var(--code-bg);
+      border-radius: 8px;
+      line-height: 1.55;
+      border: 1px solid #0b1220;
+    }
+
+    pre code {
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      border-radius: 0;
+      font-size: 13px;
+    }
+
+    .arch {
+      background: #f3f6fa;
+      color: #1f2933;
+      border-color: #cad3df;
+    }
+
+    .arch code {
+      color: #1f2933;
+    }
+
+    table {
+      width: 100%;
+      margin: 16px 0;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      vertical-align: top;
+      border: 1px solid var(--line);
+    }
+
+    th {
+      text-align: left;
+      background: #eef4fa;
+    }
+
+    ul, ol {
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    .note {
+      margin: 16px 0;
+      padding: 12px 14px;
+      background: var(--accent-soft);
+      border-left: 4px solid var(--accent);
+      border-radius: 6px;
+    }
+
+    .check {
+      margin: 16px 0;
+      padding: 12px 14px;
+      background: var(--warn-bg);
+      border-left: 4px solid var(--warn-line);
+      border-radius: 6px;
+    }
+
+    .path {
+      white-space: nowrap;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      nav {
+        position: static;
+        height: auto;
+      }
+
+      main {
+        padding: 24px 16px 48px;
+      }
+
+      section {
+        padding: 22px 18px;
+      }
+
+      .two-col {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <nav aria-label="文档目录">
+      <h1>eh2-cosim-veri</h1>
+      <p class="sub">整体设计与使用方式</p>
+      <div class="group">整体设计</div>
+      <a href="#position">平台定位</a>
+      <a href="#architecture">架构总图</a>
+      <a href="#components">关键组件</a>
+      <a href="#mechanism">协同仿真机制</a>
+      <a href="#signoff-design">签核设计</a>
+      <a href="#vendoring">自包含与 vendoring</a>
+      <a href="#tree">目录结构</a>
+      <div class="group">使用方式</div>
+      <a href="#requirements">机器前提</a>
+      <a href="#setup">首次配置</a>
+      <a href="#quickstart">快速上手</a>
+      <a href="#targets">Make target 参考</a>
+      <a href="#workflows">典型工作流</a>
+      <a href="#add-test">新增 cosim 定向测试</a>
+      <a href="#debug">失配排查</a>
+      <a href="#ci">CI 单测</a>
+    </nav>
+
+    <main>
+      <section id="design">
+        <h2>整体设计</h2>
+
+        <section id="position">
+          <h3>平台定位</h3>
+          <p>
+            <strong>eh2-cosim-veri</strong> 是面向 EH2（RISC-V Cores-VeeR-EH2）的
+            <strong>cosim-only 协同仿真验证平台</strong>。它只保留 RTL 仿真、UVM 激励、
+            riscv-dv、riscv compliance、覆盖率和 sign-off 所需内容，核心路径是标准
+            <strong>RVVI-API</strong> 在线 lockstep（逐指令比对），不是旧平台中的自定义
+            Cosim 多态比对层。
+          </p>
+          <p>
+            平台验证的主问题是：EH2 RTL 每次 retire（提交）的 PC、指令、GPR、CSR、trap
+            和相关内存事件，是否与 Spike 参考模型在同一 hart 上逐指令一致。
+          </p>
+        </section>
+
+        <section id="architecture">
+          <h3>架构总图</h3>
+          <pre class="arch"><code>EH2 RTL -- probe/RVFI/trace --&gt; eh2_rvvi_adapter.sv --&gt; rvviTrace 接口（官方）
+                                                       | DPI: rvviApi.h
+                                                       v
+                         eh2_rvvi_scoreboard.sv -- RVVI-API 在线 lockstep
+                                                       | rvviRefInit/EventStep/PcCompare/GprsCompareWritten/CsrsCompare
+                                                       v
+                         spike_rvvi.cc -- Spike 包成 RVVI-API 参考模型
+                                                       |
+                                                       v
+                         spike_cosim.cc -- 复用 SpikeCosim 步进、CSR 和内存修正引擎</code></pre>
+          <p>
+            OPT 后 RVVI 已是默认路径。`make smoke`、`make regress TESTLIST=cosim`
+            和 `make signoff PROFILE=cosim` 都会默认走 RVVI lockstep；不再需要正向启用开关。
+          </p>
+        </section>
+
+        <section id="components">
+          <h3>关键组件</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>路径</th>
+                <th>规模</th>
+                <th>职责</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="path"><code>dv/uvm/core_eh2/common/rvvi_agent/eh2_rvvi_adapter.sv</code></td>
+                <td>约 241 行</td>
+                <td>把 EH2 trace、RVFI 等价信号和 DUT probe 映射到标准 <code>rvviTrace</code>。这里处理双发射 i0/i1 到 order、双 hart SMT、trap/interrupt、CSR 和写回信号的格式化。</td>
+              </tr>
+              <tr>
+                <td class="path"><code>dv/uvm/core_eh2/common/rvvi_agent/eh2_rvvi_scoreboard.sv</code></td>
+                <td>约 487 行</td>
+                <td>RVVI-API 消费端。它从 <code>rvviTrace</code> 读取 DUT retire，调用 <code>rvviDutRetire</code>/<code>rvviDutTrap</code>、<code>rvviRefEventStep</code>、<code>rvviRefPcCompare</code>、<code>rvviRefGprsCompareWritten</code> 和 <code>rvviRefCsrsCompare</code>。异步写回用 <code>async_wb_q</code> 按 hart、source 和 rd 延迟匹配；store 通过 <code>rvviDutBusWrite</code> 通知参考侧；中断、NMI、debug 请求通过 <code>rvviRefNetSet</code> 传入。</td>
+              </tr>
+              <tr>
+                <td class="path"><code>dv/cosim/spike_rvvi.cc</code> / <code>.h</code></td>
+                <td>约 766 行 / 13 行</td>
+                <td>实现 RVVI-API 参考侧 DPI 符号，例如 <code>rvviRefInit</code>、<code>rvviRefEventStep</code>、<code>rvviRefPcCompare</code>、<code>rvviRefCsrGet</code>、<code>rvviDutGprSet</code>、<code>rvviDutBusWrite</code>。内部驱动 <code>SpikeCosim</code>。</td>
+              </tr>
+              <tr>
+                <td class="path"><code>dv/cosim/spike_cosim.cc</code> / <code>.h</code></td>
+                <td>约 1839 行 / 208 行</td>
+                <td>复用的 Spike 步进、CSR、内存和 EH2 特例修正引擎。EH2 自定义 CSR 预注册清单在 <code>spike_cosim.cc</code> 中维护，是当前唯一源；代码中注册了 <code>eh2_init_csrs</code> 数组，并包含 WARL、atomic、压缩指令 rd 解码等处理。</td>
+              </tr>
+              <tr>
+                <td class="path"><code>dv/cosim/spike_rvvi_main.cc</code></td>
+                <td>约 50 行</td>
+                <td><code>make rvviref</code> 使用的独立参考模型入口，用于在不启动 RTL 仿真的情况下运行 Spike RVVI ref。</td>
+              </tr>
+              <tr>
+                <td class="path"><code>vendor/rvvi</code></td>
+                <td>vendored 上游</td>
+                <td>官方 RVVI 文件，包含 <code>vendor/rvvi/source/host/rvvi/rvviTrace.sv</code>、<code>rvviApiPkg.sv</code> 和 <code>vendor/rvvi/include/host/rvvi/rvviApi.h</code>。本仓不改上游。</td>
+              </tr>
+              <tr>
+                <td class="path"><code>dv/uvm/core_eh2/env/core_eh2_env.sv</code></td>
+                <td>约 137 行</td>
+                <td>UVM env。例化 3 个 <code>axi4_agent#()</code>（LSU、IFU、SB）、IRQ、JTAG、halt/run 和 trace monitor，并保留 double-fault detection scoreboard。</td>
+              </tr>
+              <tr>
+                <td class="path"><code>dv/uvm/core_eh2/tb/core_eh2_tb_top.sv</code></td>
+                <td>约 1259 行</td>
+                <td>TB top。例化 EH2 DUT、3 个 <code>axi4_slave_mem</code>、<code>rvviTrace</code>、<code>eh2_rvvi_adapter</code> 和 <code>eh2_rvvi_scoreboard</code>，并把 UVM interface 放入 config DB。</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4>UVM agent 骨架</h4>
+          <ul>
+            <li><code>common/axi4_agent</code>：监控和驱动 LSU、IFU、SB 三路 AXI4 总线。</li>
+            <li><code>common/trace_agent</code>：采集 EH2 retire trace，并连接双错检测 scoreboard。</li>
+            <li><code>common/irq_agent</code>：驱动 timer、software、external、NMI 等中断输入。</li>
+            <li><code>common/jtag_agent</code>：驱动 JTAG debug 相关引脚。</li>
+            <li><code>common/halt_run_agent</code>：驱动 MPC/CPU halt-run 请求。</li>
+          </ul>
+        </section>
+
+        <section id="mechanism">
+          <h3>协同仿真机制深入</h3>
+          <h4>单 hart lockstep 时序</h4>
+          <ol>
+            <li>EH2 RTL retire 一条指令，trace/RVFI/probe 信号在 TB top 汇入 <code>eh2_rvvi_adapter.sv</code>。</li>
+            <li>adapter 填写官方 <code>rvviTrace</code> 接口，包括 valid、order、PC、insn、trap、GPR 和 CSR。</li>
+            <li><code>eh2_rvvi_scoreboard.sv</code> 从 <code>rvviTrace</code> 取 retire event，并把 DUT 侧状态写入 RVVI-API。</li>
+            <li>scoreboard 调用 <code>rvviRefEventStep</code> 让 Spike 参考模型前进一步。</li>
+            <li>scoreboard 依次调用 PC、指令、写过的 GPR 和 CSR 比对函数。若 mismatch、API error 或 retire 数不一致，仿真结束时报错。</li>
+          </ol>
+
+          <h4>EH2 难点边界</h4>
+          <ul>
+            <li><strong>双发射 RETIRE2</strong>：adapter 按 i0/i1 提交槽生成标准 RVVI order，scoreboard 按 order 消费。</li>
+            <li><strong>异步写回</strong>：DIV、非阻塞 load 等写回可能晚于 retire 到达，scoreboard 使用 per-hart <code>async_wb_q</code> 按 source 和 rd 延迟匹配。</li>
+            <li><strong>压缩指令 rd 解码</strong>：SpikeCosim 中保留压缩 load 等指令的 rd 解析，用于抑制或修正部分写回场景。</li>
+            <li><strong>CSR 豁免和修正</strong>：标准 CSR 比对集中在 <code>mstatus</code>、<code>mtvec</code>、<code>mepc</code>、<code>mcause</code>、<code>mtval</code>、<code>mip</code> 等路径；EH2 自定义 CSR 在 <code>spike_cosim.cc</code> 中预注册和 WARL 修正。不要把这理解成完整 SoC CSR 建模。</li>
+            <li><strong>store 通知</strong>：DUT store 总线事件通过 <code>rvviDutBusWrite</code> 传给参考侧，用于对齐 Spike 的内存视图。</li>
+          </ul>
+
+          <h4>双 hart SMT</h4>
+          <p>
+            双 hart 使用 <code>CONFIG=dual_thread</code> 或 <code>CONFIG=default_mt</code> 切到
+            <code>rtl/snapshots/default_mt</code>，Makefile 同时设置 <code>RVVI_NHART=2</code>。
+            运行时仍需要传 <code>+rvvi_nhart=2</code>，scoreboard 会检查 plusarg 与编译出的
+            NHART 是否一致。
+          </p>
+          <pre><code>make smoke CONFIG=dual_thread SIM_OPTS="+rvvi_nhart=2"</code></pre>
+          <p>
+            当前范围是两个 hart 各自的核内 lockstep：per-hart 队列、net、bus 和 retire
+            路径分别比对。核间 DCCM 窗口一致性比对不在本平台范围内。
+          </p>
+        </section>
+
+        <section id="signoff-design">
+          <h3>sign-off 设计</h3>
+          <p>
+            入口是 <code>dv/uvm/core_eh2/scripts/signoff.py</code>，允许的 stage 固定为：
+            <code>smoke</code>、<code>directed</code>、<code>cosim</code>、<code>riscvdv</code>、
+            <code>compliance</code>。覆盖率 gate 由 Makefile 的 <code>COV</code> 和
+            signoff 参数控制。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Profile</th>
+                <th>Stage 集合</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>quick</code></td><td><code>smoke</code>、<code>directed</code></td></tr>
+              <tr><td><code>cosim</code></td><td><code>smoke</code>、<code>cosim</code></td></tr>
+              <tr><td><code>riscvdv_smoke</code></td><td><code>riscvdv</code></td></tr>
+              <tr><td><code>nightly</code></td><td><code>smoke</code>、<code>directed</code>、<code>cosim</code>、<code>riscvdv</code></td></tr>
+              <tr><td><code>full</code></td><td><code>smoke</code>、<code>directed</code>、<code>cosim</code>、<code>riscvdv</code>、<code>compliance</code></td></tr>
+            </tbody>
+          </table>
+          <p>
+            当前最小通过数阈值来自 <code>STAGE_MIN_PASSED</code>：<code>smoke=1</code>、
+            <code>directed=33</code>、<code>cosim=7</code>、<code>riscvdv=50</code>、
+            <code>compliance=85</code>。
+          </p>
+        </section>
+
+        <section id="vendoring">
+          <h3>自包含与 vendoring</h3>
+          <p>
+            项目级依赖全部在 <code>vendor/</code> 下：<code>vendor/spike</code>、
+            <code>vendor/google_riscv-dv</code>、<code>vendor/rvvi</code>、
+            <code>vendor/riscv-tests</code>。<code>make spike</code> 会在库内构建 Spike，并生成
+            <code>vendor/spike/install</code>；该产物不进 Git。
+          </p>
+          <p>
+            允许外部提供的机器前提只有仿真器（VCS 或 Incisive/irun）、支持 C++17 的 g++、
+            以及 <code>riscv32-unknown-elf-*</code> 工具链。机器路径写在本地 <code>env.mk</code>，
+            <code>env.mk</code> 被 Git 忽略。
+          </p>
+        </section>
+
+        <section id="tree">
+          <h3>目录结构</h3>
+          <table>
+            <thead>
+              <tr><th>目录</th><th>说明</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>rtl/</code></td><td>EH2 DUT RTL 和 snapshot 参数。</td></tr>
+              <tr><td><code>shared/</code></td><td>AXI4 interface、AXI4 slave memory 等共享 RTL。</td></tr>
+              <tr><td><code>dv/cosim/</code></td><td>SpikeCosim 引擎、RVVI-API 参考侧和独立 ref 可执行入口。</td></tr>
+              <tr><td><code>dv/uvm/core_eh2/</code></td><td>UVM testbench、RVVI adapter/scoreboard、testlist、脚本和覆盖率配置。</td></tr>
+              <tr><td><code>dv/uvm/riscv_compliance/</code></td><td>riscv compliance 集成脚本和 Makefile。</td></tr>
+              <tr><td><code>tests/asm/</code></td><td>冒烟和 cosim directed 汇编测试，构建出 hex、elf、dis。</td></tr>
+              <tr><td><code>vendor/</code></td><td>Spike、riscv-dv、RVVI、riscv-tests 的 vendored 副本。</td></tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+
+      <section id="usage">
+        <h2>使用方式</h2>
+
+        <section id="requirements">
+          <h3>机器前提</h3>
+          <ul>
+            <li>Synopsys VCS，或 Cadence Incisive（<code>irun</code>）。</li>
+            <li>支持 C++17 的 <code>g++</code>。系统 <code>g++ 4.8.5</code> 不满足 Spike/RVVI 侧构建要求。</li>
+            <li><code>riscv32-unknown-elf-*</code> 工具链，或通过 <code>RISCV_PREFIX</code> 指定前缀。</li>
+          </ul>
+          <div class="check">
+            // CHECK: 本机 VCS / Incisive 路径与版本、C++17 g++ 路径与版本、riscv32 工具链路径与版本由验收实测填写。
+          </div>
+        </section>
+
+        <section id="setup">
+          <h3>首次配置</h3>
+          <ol>
+            <li>复制本机配置模板：<code>cp env.mk.example env.mk</code>。</li>
+            <li>填写 <code>SPIKE_CXX</code>，它必须指向支持 C++17 的 g++。</li>
+            <li>填写 <code>NC_INSTALL</code>，用于找到 Incisive 的 <code>svdpi.h</code> 和 UVM-1.2；如果只用 VCS，也可以设置 <code>VCS_HOME</code> 作为 <code>svdpi.h</code> fallback。</li>
+            <li>如工具链命令不是默认 <code>riscv32-unknown-elf-</code> 前缀，设置 <code>RISCV_PREFIX</code>。</li>
+            <li>运行 <code>make spike</code>，在 <code>vendor/spike</code> 内构建 Spike install。</li>
+          </ol>
+          <pre><code>cp env.mk.example env.mk
+# 编辑 env.mk：SPIKE_CXX、NC_INSTALL；必要时设置 VCS_HOME、RISCV_PREFIX
+make spike</code></pre>
+          <p>
+            <code>SPIKE_DIR</code>、<code>SPIKE_INSTALL</code>、<code>RISCV_TESTS_FW</code>、
+            <code>RISCV_COMPLIANCE_FW</code> 在 Makefile 中默认指向库内 vendored 目录，通常不需要写进
+            <code>env.mk</code>，除非你明确要覆盖。
+          </p>
+          <div class="check">// CHECK: <code>make spike</code> 在本机的首次构建耗时由验收实测填写。</div>
+        </section>
+
+        <section id="quickstart">
+          <h3>快速上手</h3>
+          <p>
+            最小闭环是 <code>make smoke</code>。它会构建 <code>tests/asm/smoke.hex</code> /
+            <code>smoke.elf</code>、编译 TB、启动仿真，并默认启用 RVVI lockstep。
+          </p>
+          <pre><code>make smoke</code></pre>
+          <p>
+            通过条件是回归结果 <code>Passed: 1 | Failed: 0</code>，并且仿真日志中
+            <code>RVVI_SCOREBOARD</code> 结束统计的 <code>mismatches=0</code>。
+          </p>
+        </section>
+
+        <section id="targets">
+          <h3>Make target 参考</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Target</th>
+                <th>作用</th>
+                <th>关键变量</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>make spike</code></td><td>在库内构建 vendored Spike，生成 <code>vendor/spike/install</code>。</td><td><code>SPIKE_CXX</code></td></tr>
+              <tr><td><code>make cosim</code></td><td>编译 <code>build/libcosim.so</code>，源文件为 <code>spike_cosim.cc</code> 和 <code>spike_rvvi.cc</code>。</td><td><code>SPIKE_DIR</code>、<code>SPIKE_CXX</code>、<code>NC_INSTALL</code> 或 <code>VCS_HOME</code></td></tr>
+              <tr><td><code>make asm</code></td><td>编译 <code>tests/asm/*.S</code>，生成 hex、elf、dis。</td><td><code>RISCV_PREFIX</code></td></tr>
+              <tr><td><code>make compile</code></td><td>编译 RTL/TB，分发到 <code>compile_vcs</code> 或 <code>compile_nc</code>。</td><td><code>SIMULATOR=vcs|nc</code>、<code>CONFIG</code>、<code>COV</code></td></tr>
+              <tr><td><code>make smoke</code></td><td>运行 1 个 smoke 测试，默认 RVVI lockstep。</td><td><code>SIMULATOR</code>、<code>CONFIG</code>、<code>SIM_OPTS</code></td></tr>
+              <tr><td><code>make regress</code></td><td>运行 testlist 回归。</td><td><code>TESTLIST=riscvdv|directed|cosim</code>、<code>TEST</code>、<code>ITERATIONS</code>、<code>PARALLEL</code>、<code>OUT</code></td></tr>
+              <tr><td><code>make compliance</code></td><td>运行 riscv compliance 集成。</td><td><code>SUITE=run|all|compile</code>、<code>SIMULATOR</code></td></tr>
+              <tr><td><code>make rvviref</code></td><td>构建并运行独立 Spike RVVI 参考模型。</td><td><code>BINARY</code>、<code>RVVIREF_STEPS</code>、<code>RVVIREF_LOG</code></td></tr>
+              <tr><td><code>make watch_wave</code></td><td>运行指定测试并打开波形。batch 模式离线看，live 模式使用 NC GUI。</td><td><code>TEST=&lt;name&gt;</code>、<code>MODE=batch|live</code>、<code>SIMULATOR</code></td></tr>
+              <tr><td><code>make signoff</code></td><td>运行 cosim-only 签核入口。</td><td><code>PROFILE=full|cosim|quick|nightly|riscvdv_smoke</code>、<code>SIMULATOR</code>、<code>GATE_ONLY</code>、<code>COV</code>、<code>PARALLEL</code></td></tr>
+              <tr><td><code>make clean</code></td><td>清理产物，默认保留部分长耗时缓存和签发证据。</td><td><code>SCOPE</code>、<code>MODE=delete|archive</code>、<code>DRY_RUN</code>、<code>FORCE</code></td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="workflows">
+          <h3>典型工作流</h3>
+          <h4>调试单个 cosim 测试</h4>
+          <pre><code>make regress TESTLIST=cosim TEST=cosim_alu</code></pre>
+
+          <h4>运行 cosim profile 签核</h4>
+          <pre><code>make signoff PROFILE=cosim</code></pre>
+          <div class="check">// CHECK: <code>make signoff PROFILE=cosim</code> 在本机的耗时由验收实测填写。</div>
+
+          <h4>运行完整签核</h4>
+          <pre><code>make signoff</code></pre>
+          <p>
+            默认 <code>PROFILE=full</code>，包含 <code>smoke</code>、<code>directed</code>、
+            <code>cosim</code>、<code>riscvdv</code>、<code>compliance</code>。
+          </p>
+          <div class="check">// CHECK: <code>make signoff</code> 全量耗时由验收实测填写；长跑不建议在日常编辑后反复执行。</div>
+
+          <h4>双 hart smoke</h4>
+          <pre><code>make smoke CONFIG=dual_thread SIM_OPTS="+rvvi_nhart=2"</code></pre>
+
+          <h4>查看波形</h4>
+          <pre><code>make watch_wave TEST=smoke MODE=batch
+make watch_wave TEST=smoke MODE=live SIMULATOR=nc</code></pre>
+        </section>
+
+        <section id="add-test">
+          <h3>新增一个 cosim 定向测试</h3>
+          <ol>
+            <li>在 <code>tests/asm/</code> 新增一个 <code>.S</code> 文件。</li>
+            <li>在 <code>dv/uvm/core_eh2/directed_tests/cosim_testlist.yaml</code> 注册测试条目，复用 <code>eh2_cosim</code> config。</li>
+            <li>运行 <code>make regress TESTLIST=cosim TEST=&lt;name&gt;</code>。</li>
+          </ol>
+          <p>现有 <code>cosim_alu</code> 条目可作为最小示例：</p>
+          <pre><code>- test: cosim_alu
+  desc: "Register writeback correlation for deterministic ALU instructions"
+  config: eh2_cosim
+  test_srcs: tests/asm/cosim_alu.S
+  iterations: 1</code></pre>
+        </section>
+
+        <section id="debug">
+          <h3>失配排查</h3>
+          <ul>
+            <li>先看仿真日志中的 <code>RVVI_SCOREBOARD</code> 报错。PC、insn、GPR、CSR mismatch 会带出 hart、retire slot、PC 和指令值。</li>
+            <li>用对应 <code>.dis</code> 反汇编定位 retire 指令，再回看 <code>rvvi_trace.log</code> 和波形。</li>
+            <li>如果是 CSR 差异，先确认是否属于 EH2 自定义 CSR 或 WARL 字段；当前 CSR 预注册和修正集中在 <code>dv/cosim/spike_cosim.cc</code>。</li>
+            <li>如果是异步写回，检查 DIV、非阻塞 load 或 suppressed write 相关路径，重点看 <code>async_wb_q</code> 入队和匹配条件。</li>
+          </ul>
+        </section>
+
+        <section id="ci">
+          <h3>CI 单测</h3>
+          <p>脚本层单测入口：</p>
+          <pre><code>python3 -m pytest dv/uvm/core_eh2/scripts/tests/ -q</code></pre>
+          <p>本地做 signoff gate 改动时，同时跑：</p>
+          <pre><code>python3 -m pytest dv/uvm/core_eh2/scripts/tests/ dv/uvm/core_eh2/tests/test_signoff_gates.py -q</code></pre>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      var links = Array.prototype.slice.call(document.querySelectorAll("nav a"));
+      if (!("IntersectionObserver" in window)) return;
+      var sections = links
+        .map(function (link) { return document.querySelector(link.getAttribute("href")); })
+        .filter(Boolean);
+      var byId = {};
+      links.forEach(function (link) { byId[link.getAttribute("href").slice(1)] = link; });
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          links.forEach(function (link) { link.classList.remove("active"); });
+          if (byId[entry.target.id]) byId[entry.target.id].classList.add("active");
+        });
+      }, { rootMargin: "-20% 0px -70% 0px", threshold: 0.01 });
+      sections.forEach(function (section) { observer.observe(section); });
+    }());
+  </script>
+</body>
+</html>
