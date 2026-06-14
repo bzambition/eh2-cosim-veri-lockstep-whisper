@@ -271,6 +271,7 @@
       <a href="#setup">首次配置</a>
       <a href="#quickstart">快速上手</a>
       <a href="#targets">Make target 参考</a>
+      <a href="#variables">变量参考</a>
       <a href="#workflows">典型工作流</a>
       <a href="#add-test">新增 cosim 定向测试</a>
       <a href="#debug">失配排查</a>
@@ -526,53 +527,262 @@ make spike</code></pre>
 
         <section id="targets">
           <h3>Make target 参考</h3>
+          <p>
+            当前 Makefile 暴露 12 个顶层用户入口；<code>compile_vcs</code> 和
+            <code>compile_nc</code> 是 <code>compile</code> 根据 <code>SIMULATOR</code>
+            分发到的实现分支，不作为日常入口单列。
+          </p>
           <table>
             <thead>
               <tr>
                 <th>Target</th>
                 <th>作用</th>
+                <th>前置依赖</th>
                 <th>关键变量</th>
               </tr>
             </thead>
             <tbody>
-              <tr><td><code>make spike</code></td><td>在库内构建 vendored Spike，生成 <code>vendor/spike/install</code>。</td><td><code>SPIKE_CXX</code></td></tr>
-              <tr><td><code>make cosim</code></td><td>编译 <code>build/libcosim.so</code>，源文件为 <code>spike_cosim.cc</code> 和 <code>spike_rvvi.cc</code>。</td><td><code>SPIKE_DIR</code>、<code>SPIKE_CXX</code>、<code>NC_INSTALL</code> 或 <code>VCS_HOME</code></td></tr>
-              <tr><td><code>make asm</code></td><td>编译 <code>tests/asm/*.S</code>，生成 hex、elf、dis。</td><td><code>RISCV_PREFIX</code></td></tr>
-              <tr><td><code>make compile</code></td><td>编译 RTL/TB，分发到 <code>compile_vcs</code> 或 <code>compile_nc</code>。</td><td><code>SIMULATOR=vcs|nc</code>、<code>CONFIG</code>、<code>COV</code></td></tr>
-              <tr><td><code>make smoke</code></td><td>运行 1 个 smoke 测试，默认 RVVI lockstep。</td><td><code>SIMULATOR</code>、<code>CONFIG</code>、<code>SIM_OPTS</code></td></tr>
-              <tr><td><code>make regress</code></td><td>运行 testlist 回归。</td><td><code>TESTLIST=riscvdv|directed|cosim</code>、<code>TEST</code>、<code>ITERATIONS</code>、<code>PARALLEL</code>、<code>OUT</code></td></tr>
-              <tr><td><code>make compliance</code></td><td>运行 riscv compliance 集成。</td><td><code>SUITE=run|all|compile</code>、<code>SIMULATOR</code></td></tr>
-              <tr><td><code>make rvviref</code></td><td>构建并运行独立 Spike RVVI 参考模型。</td><td><code>BINARY</code>、<code>RVVIREF_STEPS</code>、<code>RVVIREF_LOG</code></td></tr>
-              <tr><td><code>make watch_wave</code></td><td>运行指定测试并打开波形。batch 模式离线看，live 模式使用 NC GUI。</td><td><code>TEST=&lt;name&gt;</code>、<code>MODE=batch|live</code>、<code>SIMULATOR</code></td></tr>
-              <tr><td><code>make signoff</code></td><td>运行 cosim-only 签核入口。</td><td><code>PROFILE=full|cosim|quick|nightly|riscvdv_smoke</code>、<code>SIMULATOR</code>、<code>GATE_ONLY</code>、<code>COV</code>、<code>PARALLEL</code></td></tr>
-              <tr><td><code>make clean</code></td><td>清理产物，默认保留部分长耗时缓存和签发证据。</td><td><code>SCOPE</code>、<code>MODE=delete|archive</code>、<code>DRY_RUN</code>、<code>FORCE</code></td></tr>
+              <tr><td><code>help</code></td><td>打印精简帮助。</td><td>无</td><td>无</td></tr>
+              <tr><td><code>spike</code></td><td>在库内构建 vendored Spike，生成 <code>vendor/spike/install</code>。</td><td>无</td><td><code>SPIKE_DIR</code>、<code>SPIKE_CXX</code>、<code>SPIKE_CXXFLAGS</code></td></tr>
+              <tr><td><code>cosim</code></td><td>编译 <code>build/libcosim.so</code>。</td><td><code>$(LIBCOSIM)</code></td><td><code>SPIKE_INSTALL</code>、<code>SVDPI_INCLUDE</code>、<code>NC_INSTALL</code></td></tr>
+              <tr><td><code>rvviref</code></td><td>构建并运行独立 Spike RVVI 参考模型。</td><td><code>asm $(RVVIREF_EXE)</code></td><td><code>BINARY</code>、<code>RVVIREF_STEPS</code>、<code>RVVIREF_LOG</code></td></tr>
+              <tr><td><code>asm</code></td><td>编译 <code>tests/asm/*.S</code>，生成 hex、elf、dis。</td><td>无</td><td><code>RISCV_PREFIX</code></td></tr>
+              <tr><td><code>compile</code></td><td>编译 RTL/TB，分发到 VCS 或 NC。</td><td><code>compile_$(SIMULATOR)</code></td><td><code>SIMULATOR</code>、<code>CONFIG</code>、<code>BUILD_SUBDIR</code>、<code>COV</code></td></tr>
+              <tr><td><code>smoke</code></td><td>运行 1 个 smoke 测试，默认 RVVI lockstep。</td><td><code>asm</code></td><td><code>SIMULATOR</code>、<code>CONFIG</code>、<code>SIM_OPTS</code>、<code>COV</code>、<code>WAVES</code></td></tr>
+              <tr><td><code>regress</code></td><td>运行 testlist 回归。</td><td>目标行无显式依赖，内部先调用 <code>compile</code></td><td><code>TESTLIST</code>、<code>TEST</code>、<code>SEED</code>、<code>ITERATIONS</code>、<code>PARALLEL</code></td></tr>
+              <tr><td><code>compliance</code></td><td>运行 riscv compliance 集成。</td><td>目标行无显式依赖；非 <code>SUITE=compile</code> 时内部先调用 <code>compile</code></td><td><code>SUITE</code>、<code>RISCV_COMPLIANCE_FW</code>、<code>COMPLIANCE_SIMV</code></td></tr>
+              <tr><td><code>watch_wave</code></td><td>运行指定测试并打开波形。</td><td>batch: <code>asm</code>；live: <code>asm cosim</code></td><td><code>TEST</code>、<code>MODE</code>、<code>SIMULATOR</code>、<code>TIMEOUT_NS</code></td></tr>
+              <tr><td><code>signoff</code></td><td>运行 cosim-only 签核入口。</td><td>目标行无显式依赖；非 <code>GATE_ONLY=1</code> 时内部调用 <code>asm</code> 和 <code>compile</code></td><td><code>PROFILE</code>、<code>GATE_ONLY</code>、<code>SIGNOFF_OUT</code>、<code>COV</code></td></tr>
+              <tr><td><code>clean</code></td><td>清理产物，默认保留部分长耗时缓存和签发证据。</td><td>无</td><td><code>SCOPE</code>、<code>MODE</code>、<code>DRY_RUN</code>、<code>FORCE</code></td></tr>
+            </tbody>
+          </table>
+
+          <section id="target-help">
+            <h4><code>make help</code></h4>
+            <p>打印当前 Makefile 的精简入口说明。</p>
+            <p><strong>前置依赖：</strong>无。<strong>接受变量：</strong>无。</p>
+            <pre><code>make help
+make -n smoke
+make -n signoff PROFILE=cosim</code></pre>
+          </section>
+
+          <section id="target-spike">
+            <h4><code>make spike</code></h4>
+            <p>在 <code>vendor/spike</code> 内配置、编译并安装 Spike，产出 <code>vendor/spike/install</code>。</p>
+            <p><strong>前置依赖：</strong>无。<strong>接受变量：</strong><code>SPIKE_DIR</code>、<code>SPIKE_INSTALL</code>、<code>SPIKE_CXX</code>、<code>SPIKE_CXXFLAGS</code>、<code>SPIKE_BUILD</code>。</p>
+            <pre><code>make spike
+make spike SPIKE_CXX=/path/to/cxx17/g++
+make spike SPIKE_DIR=$PWD/vendor/spike</code></pre>
+          </section>
+
+          <section id="target-cosim">
+            <h4><code>make cosim</code></h4>
+            <p>编译 RVVI-only 协同仿真的 DPI 共享库 <code>build/libcosim.so</code>，源文件是 <code>dv/cosim/spike_cosim.cc</code> 和 <code>dv/cosim/spike_rvvi.cc</code>。</p>
+            <p><strong>前置依赖：</strong><code>$(LIBCOSIM)</code> 文件目标；该文件目标要求 <code>SPIKE_INSTALL</code> 已存在。<strong>接受变量：</strong><code>SPIKE_DIR</code>、<code>SPIKE_INSTALL</code>、<code>SPIKE_CXX</code>、<code>SPIKE_CXXFLAGS</code>、<code>SPIKE_BUILD</code>、<code>NC_INSTALL</code>、<code>NC_UVM_HOME</code>、<code>SVDPI_INCLUDE</code>。</p>
+            <pre><code>make cosim
+make cosim NC_INSTALL=/path/to/INCISIVE
+make cosim SVDPI_INCLUDE=/path/to/svdpi.h</code></pre>
+          </section>
+
+          <section id="target-rvviref">
+            <h4><code>make rvviref</code></h4>
+            <p>构建并运行独立 Spike RVVI 参考模型，不启动 RTL 仿真，适合快速看参考侧 retire trace。</p>
+            <p><strong>前置依赖：</strong><code>asm $(RVVIREF_EXE)</code>。<strong>接受变量：</strong><code>BINARY</code>、<code>RVVIREF_STEPS</code>、<code>RVVIREF_LOG</code>、<code>SPIKE_DIR</code>、<code>SPIKE_INSTALL</code>、<code>SPIKE_CXX</code>、<code>SPIKE_CXXFLAGS</code>、<code>SPIKE_BUILD</code>。</p>
+            <pre><code>make rvviref
+make rvviref BINARY=tests/asm/smoke.elf RVVIREF_STEPS=20
+make rvviref RVVIREF_LOG=build/rvviref/custom.log</code></pre>
+          </section>
+
+          <section id="target-asm">
+            <h4><code>make asm</code></h4>
+            <p>进入 <code>tests/asm</code> 编译汇编测试，生成 <code>.hex</code>、<code>.elf</code> 和 <code>.dis</code>。</p>
+            <p><strong>前置依赖：</strong>无。<strong>接受变量：</strong><code>RISCV_PREFIX</code>。</p>
+            <pre><code>make asm
+make asm RISCV_PREFIX=riscv32-unknown-elf-</code></pre>
+          </section>
+
+          <section id="target-compile">
+            <h4><code>make compile</code></h4>
+            <p>编译 RTL、共享 AXI4 RTL 和 UVM TB。<code>SIMULATOR=vcs</code> 时分发到 <code>compile_vcs</code>，<code>SIMULATOR=nc</code> 时分发到 <code>compile_nc</code>。</p>
+            <p><strong>前置依赖：</strong><code>compile_$(SIMULATOR)</code>；<code>compile_vcs</code> / <code>compile_nc</code> 的显式依赖是 <code>$(LIBCOSIM) | $(BUILD_DIR)</code>。<strong>接受变量：</strong><code>SIMULATOR</code>、<code>CONFIG</code>、<code>BUILD_SUBDIR</code>、<code>COV</code>、<code>WAVES</code>、<code>NC_INSTALL</code>、<code>NC_UVM_HOME</code>、<code>SVDPI_INCLUDE</code>。</p>
+            <pre><code>make compile
+make compile SIMULATOR=nc
+make compile CONFIG=dual_thread BUILD_SUBDIR=build/compile_dual</code></pre>
+          </section>
+
+          <section id="target-smoke">
+            <h4><code>make smoke</code></h4>
+            <p>构建汇编、编译 TB，然后运行 <code>tests/asm/smoke.hex</code>。这是最小 RVVI lockstep 闭环。</p>
+            <p><strong>前置依赖：</strong><code>asm</code>。<strong>接受变量：</strong><code>SIMULATOR</code>、<code>CONFIG</code>、<code>SIM_OPTS</code>、<code>COV</code>、<code>WAVES</code>、<code>TIMEOUT_NS</code>、<code>VERBOSITY</code>。</p>
+            <pre><code>make smoke
+make smoke SIMULATOR=nc
+make smoke CONFIG=dual_thread SIM_OPTS="+rvvi_nhart=2"</code></pre>
+          </section>
+
+          <section id="target-regress">
+            <h4><code>make regress</code></h4>
+            <p>按 testlist 调用 <code>run_regress.py</code>。<code>TESTLIST=cosim</code> 对应 <code>dv/uvm/core_eh2/directed_tests/cosim_testlist.yaml</code>。</p>
+            <p><strong>前置依赖：</strong>目标行无显式依赖，命令内部先调用 <code>compile</code>。<strong>接受变量：</strong><code>TESTLIST</code>、<code>TEST</code>、<code>SEED</code>、<code>ITERATIONS</code>、<code>PARALLEL</code>、<code>SIMULATOR</code>、<code>SIM_OPTS</code>、<code>OUT</code>、<code>COV</code>、<code>WAVES</code>、<code>TIMEOUT_NS</code>、<code>VERBOSITY</code>。</p>
+            <pre><code>make regress TESTLIST=cosim
+make regress TESTLIST=cosim TEST=cosim_alu
+make regress TESTLIST=directed PARALLEL=8</code></pre>
+          </section>
+
+          <section id="target-compliance">
+            <h4><code>make compliance</code></h4>
+            <p>调用 <code>dv/uvm/riscv_compliance</code> 下的 compliance 集成。默认 suite 语义是 <code>run</code>。</p>
+            <p><strong>前置依赖：</strong>目标行无显式依赖；当 <code>SUITE</code> 不是 <code>compile</code> 时，内部先调用 <code>compile</code>。<strong>接受变量：</strong><code>SUITE</code>、<code>RISCV_COMPLIANCE_FW</code>、<code>RISCV_TESTS_FW</code>、<code>RISCV_PREFIX</code>、<code>SIMULATOR</code>、<code>COMPLIANCE_BUILD_SUBDIR</code>、<code>COMPLIANCE_SIMV</code>、<code>NC_INSTALL</code>。</p>
+            <pre><code>make compliance
+make compliance SUITE=compile
+make compliance SUITE=all</code></pre>
+          </section>
+
+          <section id="target-watch-wave">
+            <h4><code>make watch_wave</code></h4>
+            <p>运行指定汇编测试并打开波形。<code>MODE=batch</code> 语义是跑完离线查看；<code>MODE=live</code> 使用 NC GUI 边仿真边看，需要图形环境。</p>
+            <p><strong>前置依赖：</strong>batch 分支为 <code>asm</code>，live 分支为 <code>asm cosim</code>。<strong>接受变量：</strong><code>TEST</code>、<code>MODE</code>、<code>SIMULATOR</code>、<code>CONFIG</code>、<code>SIM_OPTS</code>、<code>TIMEOUT_NS</code>、<code>WAVES</code>、<code>NC_INSTALL</code>、<code>NC_UVM_HOME</code>。</p>
+            <pre><code>make watch_wave TEST=smoke
+make watch_wave TEST=smoke SIMULATOR=nc
+make watch_wave TEST=smoke MODE=live</code></pre>
+          </section>
+
+          <section id="target-signoff">
+            <h4><code>make signoff</code></h4>
+            <p>运行 cosim-only 签核入口 <code>dv/uvm/core_eh2/scripts/signoff.py</code>，stage 由 <code>PROFILE</code> 决定。</p>
+            <p><strong>前置依赖：</strong>目标行无显式依赖；非 <code>GATE_ONLY=1</code> 时内部调用 <code>asm</code> 和 <code>compile</code>。<strong>接受变量：</strong><code>PROFILE</code>、<code>SIMULATOR</code>、<code>GATE_ONLY</code>、<code>COV</code>、<code>PARALLEL</code>、<code>SEED</code>、<code>SIGNOFF_OUT</code>、<code>SIGNOFF_OPTS</code>、<code>SIGNOFF_ITERATIONS</code>、<code>SIGNOFF_MIN_LINE_COV</code>、<code>SIGNOFF_MIN_FUNCTIONAL_COV</code>、<code>SIGNOFF_ALLOW_WARNINGS</code>、<code>WAVES</code>、<code>CLEANUP</code>。</p>
+            <pre><code>make signoff PROFILE=cosim
+make signoff
+make signoff PROFILE=quick GATE_ONLY=1</code></pre>
+          </section>
+
+          <section id="target-clean">
+            <h4><code>make clean</code></h4>
+            <p>清理构建、覆盖率、仿真器、汇编或文档产物。默认保留部分长耗时缓存和签发证据；<code>FORCE=1</code> 才彻底删除保留项。</p>
+            <p><strong>前置依赖：</strong>无。<strong>接受变量：</strong><code>SCOPE</code>、<code>MODE</code>、<code>FORCE</code>、<code>DRY_RUN</code>。</p>
+            <pre><code>make clean
+make clean DRY_RUN=1
+make clean FORCE=1</code></pre>
+          </section>
+        </section>
+
+        <section id="variables">
+          <h3>全部变量参考</h3>
+          <p>
+            下列变量来自当前 Makefile 的 <code>?=</code> 可覆盖定义。一般优先把机器路径写入
+            <code>env.mk</code>，命令行覆盖只用于一次性调试。
+          </p>
+
+          <h4>通用仿真变量</h4>
+          <table>
+            <thead><tr><th>变量</th><th>默认值</th><th>取值 / 示例</th><th>含义</th></tr></thead>
+            <tbody>
+              <tr><td><code>SIMULATOR</code></td><td><code>vcs</code></td><td><code>vcs</code> 或 <code>nc</code></td><td>仿真器，VCS 或 Cadence Incisive <code>irun</code>。</td></tr>
+              <tr><td><code>CONFIG</code></td><td><code>default</code></td><td><code>default</code>、<code>dual_thread</code>、<code>default_mt</code></td><td>核配置；后两者选择 <code>default_mt</code> snapshot 并设置 <code>RVVI_NHART=2</code>。</td></tr>
+              <tr><td><code>TEST</code></td><td>空</td><td><code>cosim_alu</code></td><td>指定单个测试名。</td></tr>
+              <tr><td><code>TESTLIST</code></td><td><code>riscvdv</code></td><td><code>riscvdv</code>、<code>directed</code>、<code>cosim</code></td><td>选择回归测试集和对应 testlist 路径。</td></tr>
+              <tr><td><code>SEED</code></td><td><code>1</code></td><td>整数</td><td>随机种子。</td></tr>
+              <tr><td><code>ITERATIONS</code></td><td><code>1</code></td><td>整数</td><td>每个测试的迭代次数。</td></tr>
+              <tr><td><code>PARALLEL</code></td><td><code>4</code></td><td>整数</td><td>并行 job 数。</td></tr>
+              <tr><td><code>VERBOSITY</code></td><td><code>UVM_MEDIUM</code></td><td><code>UVM_LOW</code>、<code>UVM_MEDIUM</code>、<code>UVM_HIGH</code>、<code>UVM_FULL</code>、<code>UVM_DEBUG</code></td><td>UVM 日志详细度，传给脚本层。</td></tr>
+              <tr><td><code>TIMEOUT_NS</code></td><td><code>10000000</code></td><td>整数，单位 ns</td><td>仿真超时。</td></tr>
+              <tr><td><code>WAVES</code></td><td><code>0</code></td><td><code>0</code> 或 <code>1</code></td><td>是否 dump 波形。</td></tr>
+              <tr><td><code>COV</code></td><td><code>1</code></td><td><code>0</code> 或 <code>1</code></td><td>是否收集覆盖率。</td></tr>
+              <tr><td><code>OUT</code></td><td>空</td><td><code>build/my_regress</code></td><td><code>make regress</code> 的输出目录覆盖。</td></tr>
+              <tr><td><code>SIM_OPTS</code></td><td>空</td><td><code>"+rvvi_nhart=2"</code></td><td>透传给仿真器或回归脚本的 plusargs。</td></tr>
+            </tbody>
+          </table>
+
+          <h4>sign-off 变量</h4>
+          <table>
+            <thead><tr><th>变量</th><th>默认值</th><th>取值 / 示例</th><th>含义</th></tr></thead>
+            <tbody>
+              <tr><td><code>PROFILE</code></td><td><code>full</code></td><td><code>quick</code>、<code>cosim</code>、<code>nightly</code>、<code>riscvdv_smoke</code>、<code>full</code></td><td>签核 stage 集。</td></tr>
+              <tr><td><code>GATE_ONLY</code></td><td><code>0</code></td><td><code>0</code> 或 <code>1</code></td><td>只复算 gate，不重跑仿真。</td></tr>
+              <tr><td><code>CLEANUP</code></td><td><code>0</code></td><td><code>0</code> 或 <code>1</code></td><td>签核后清理锁文件等中间残留。</td></tr>
+              <tr><td><code>SIGNOFF_OUT</code></td><td><code>$(BUILD_DIR)/signoff_$(SIMULATOR)</code></td><td>路径</td><td>签核输出目录。</td></tr>
+              <tr><td><code>SIGNOFF_OPTS</code></td><td>空</td><td><code>--stages smoke,cosim</code></td><td>透传给 <code>signoff.py</code> 的额外参数。</td></tr>
+              <tr><td><code>SIGNOFF_ITERATIONS</code></td><td>空</td><td>整数</td><td>覆盖各 stage 的迭代数。</td></tr>
+              <tr><td><code>SIGNOFF_MIN_LINE_COV</code></td><td><code>55</code></td><td>整数百分比</td><td>行覆盖率门限。</td></tr>
+              <tr><td><code>SIGNOFF_MIN_FUNCTIONAL_COV</code></td><td><code>40</code></td><td>整数百分比</td><td>功能覆盖率门限。</td></tr>
+              <tr><td><code>SIGNOFF_ALLOW_WARNINGS</code></td><td><code>1</code></td><td><code>0</code> 或 <code>1</code></td><td>是否允许 warning 不阻断 gate。</td></tr>
+            </tbody>
+          </table>
+
+          <h4>波形、合规和清理变量</h4>
+          <table>
+            <thead><tr><th>变量</th><th>默认值</th><th>取值 / 示例</th><th>含义</th></tr></thead>
+            <tbody>
+              <tr><td><code>MODE</code></td><td>空</td><td><code>batch</code>、<code>live</code>、<code>delete</code>、<code>archive</code></td><td><code>watch_wave</code> 中空值等价 batch；<code>clean</code> 中空值等价 delete。</td></tr>
+              <tr><td><code>SUITE</code></td><td>空</td><td><code>run</code>、<code>all</code>、<code>compile</code></td><td><code>make compliance</code> 的 suite；空值按 run 处理。</td></tr>
+              <tr><td><code>SCOPE</code></td><td><code>full</code></td><td><code>full</code>、<code>build</code>、<code>cov</code>、<code>vcs</code>、<code>nc</code>、<code>asm</code>、<code>docs</code></td><td><code>make clean</code> 的清理范围。</td></tr>
+              <tr><td><code>DRY_RUN</code></td><td><code>0</code></td><td><code>0</code> 或 <code>1</code></td><td>只打印清理动作，不执行。</td></tr>
+              <tr><td><code>FORCE</code></td><td><code>0</code></td><td><code>0</code> 或 <code>1</code></td><td>彻底删除默认保留的签发证据和缓存。</td></tr>
+            </tbody>
+          </table>
+
+          <h4>构建 / 工具链变量</h4>
+          <table>
+            <thead><tr><th>变量</th><th>默认值</th><th>取值 / 示例</th><th>含义</th></tr></thead>
+            <tbody>
+              <tr><td><code>NC_UVM_HOME</code></td><td><code>$(NC_INSTALL)/tools/methodology/UVM/CD&#78;S-1.2</code></td><td>路径</td><td>NC/irun 使用的 UVM-1.2 源目录。</td></tr>
+              <tr><td><code>SPIKE_DIR</code></td><td><code>$(CURDIR)/vendor/spike</code></td><td>路径</td><td>库内 Spike 源码目录。</td></tr>
+              <tr><td><code>SPIKE_INSTALL</code></td><td><code>$(SPIKE_DIR)/install</code></td><td>路径</td><td><code>make spike</code> 产出的 install 目录。</td></tr>
+              <tr><td><code>SPIKE_CXX</code></td><td><code>g++</code></td><td><code>/path/to/cxx17/g++</code></td><td>构建 Spike 和 RVVI ref 的 C++17 编译器。</td></tr>
+              <tr><td><code>SPIKE_CXXFLAGS</code></td><td><code>-std=c++17 -static-libstdc++</code></td><td>C++ 编译选项</td><td>Spike/RVVI ref 编译选项。</td></tr>
+              <tr><td><code>SPIKE_BUILD</code></td><td><code>$(BUILD_DIR)/spike_objs</code></td><td>路径</td><td>从 Spike 静态库展开对象文件并重打包的临时目录。</td></tr>
+              <tr><td><code>RISCV_PREFIX</code></td><td><code>riscv32-unknown-elf-</code></td><td>工具链前缀</td><td>汇编测试和 compliance 使用的 RISC-V 交叉工具链前缀。</td></tr>
+              <tr><td><code>RISCV_TESTS_FW</code></td><td><code>$(CURDIR)/vendor/riscv-tests</code></td><td>路径</td><td>vendored riscv-tests 根目录。</td></tr>
+              <tr><td><code>RISCV_COMPLIANCE_FW</code></td><td><code>$(RISCV_TESTS_FW)</code></td><td>路径</td><td>compliance 框架根目录。</td></tr>
+              <tr><td><code>NC_INSTALL</code></td><td>空</td><td><code>/path/to/INCISIVE</code></td><td>Incisive 安装目录，用于派生 UVM 和 <code>svdpi.h</code>。</td></tr>
+              <tr><td><code>SVDPI_INCLUDE</code></td><td><code>$(firstword ...)</code></td><td><code>/path/to/svdpi.h</code></td><td><code>svdpi.h</code> 文件路径；默认从 <code>NC_INSTALL</code> 或本地 VCS 安装路径查找。</td></tr>
+              <tr><td><code>BINARY</code></td><td><code>$(ASM_DIR)/smoke.elf</code></td><td><code>tests/asm/cosim_alu.elf</code></td><td><code>make rvviref</code> 的输入 ELF。</td></tr>
+              <tr><td><code>RVVIREF_STEPS</code></td><td><code>6</code></td><td>整数</td><td>独立 RVVI ref 前进的指令数。</td></tr>
+              <tr><td><code>RVVIREF_LOG</code></td><td><code>$(RVVIREF_BUILD)/rvvi_ref_trace.log</code></td><td>路径</td><td>独立 RVVI ref trace 输出路径。</td></tr>
+            </tbody>
+          </table>
+
+          <h4>内部构建路径变量</h4>
+          <table>
+            <thead><tr><th>变量</th><th>默认值</th><th>取值 / 示例</th><th>含义</th></tr></thead>
+            <tbody>
+              <tr><td><code>BUILD_SUBDIR</code></td><td><code>$(BUILD_DIR)/compile_$(SIMULATOR)</code></td><td><code>build/smoke_vcs</code></td><td>当前仿真编译产物目录，通常由 target 内部覆盖。</td></tr>
+              <tr><td><code>COMPLIANCE_BUILD_SUBDIR</code></td><td><code>$(BUILD_DIR)/compile_$(SIMULATOR)</code></td><td>路径</td><td>compliance 复用或生成的 TB 编译目录。</td></tr>
+              <tr><td><code>COMPLIANCE_SIMV</code></td><td><code>$(CURDIR)/$(COMPLIANCE_BUILD_SUBDIR)/simv</code></td><td>路径</td><td>compliance 调用的 VCS 可执行文件路径。</td></tr>
             </tbody>
           </table>
         </section>
 
         <section id="workflows">
           <h3>典型工作流</h3>
-          <h4>调试单个 cosim 测试</h4>
-          <pre><code>make regress TESTLIST=cosim TEST=cosim_alu</code></pre>
+          <pre><code># 调试单个 cosim 测试
+make regress TESTLIST=cosim TEST=cosim_alu
 
-          <h4>运行 cosim profile 签核</h4>
-          <pre><code>make signoff PROFILE=cosim</code></pre>
-          <div class="check">// CHECK: <code>make signoff PROFILE=cosim</code> 在本机的耗时由验收实测填写。</div>
+# 改用 NC 并打开波形
+make smoke SIMULATOR=nc WAVES=1
 
-          <h4>运行完整签核</h4>
-          <pre><code>make signoff</code></pre>
-          <p>
-            默认 <code>PROFILE=full</code>，包含 <code>smoke</code>、<code>directed</code>、
-            <code>cosim</code>、<code>riscvdv</code>、<code>compliance</code>。
-          </p>
-          <div class="check">// CHECK: <code>make signoff</code> 全量耗时由验收实测填写；长跑不建议在日常编辑后反复执行。</div>
+# 双 hart 冒烟
+make smoke CONFIG=dual_thread SIM_OPTS="+rvvi_nhart=2"
 
-          <h4>双 hart smoke</h4>
-          <pre><code>make smoke CONFIG=dual_thread SIM_OPTS="+rvvi_nhart=2"</code></pre>
+# 快速签核：smoke + cosim
+make signoff PROFILE=cosim
 
-          <h4>查看波形</h4>
-          <pre><code>make watch_wave TEST=smoke MODE=batch
-make watch_wave TEST=smoke MODE=live SIMULATOR=nc</code></pre>
+# 全量签核：默认 full
+make signoff
+
+# 离线看波形，VCS 分支会打开 Verdi
+make watch_wave TEST=smoke
+
+# NC 实时看波形，需图形环境
+make watch_wave TEST=smoke MODE=live
+
+# compliance 只编译
+make compliance SUITE=compile
+
+# 清理、彻底清理、预览清理
+make clean
+make clean FORCE=1
+make clean DRY_RUN=1</code></pre>
+          <div class="check">// CHECK: <code>make smoke</code>、<code>make signoff PROFILE=cosim</code> 和 <code>make signoff</code> 的本机耗时由验收实测填写。</div>
         </section>
 
         <section id="add-test">
