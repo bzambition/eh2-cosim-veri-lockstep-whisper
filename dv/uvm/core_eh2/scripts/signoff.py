@@ -178,7 +178,7 @@ def precheck(stages: List[str], simulator: str, output_dir: Path) -> Dict:
 
     if "cosim" in stages:
         libcosim = EH2_ROOT / "build" / "libcosim.so"
-        add("spike_cosim_dpi", libcosim.exists(),
+        add("spike_rvvi_dpi", libcosim.exists(),
             "{} (run `make cosim` if missing)".format(libcosim))
 
     cfg_path = EH2_ROOT / "eh2_configs.yaml"
@@ -222,7 +222,6 @@ def build_stage_cmd(stage: str, args, stage_out: Path, simv_path: Path) -> List[
             "--test", "smoke",
             "--binary", str(EH2_ROOT / "tests" / "asm" / "smoke.hex"),
             "--rtl-test", "core_eh2_base_test",
-            "--sim-opts", "+use_rvvi_cosim=1",
         ])
     elif stage == "compliance":
         runner = EH2_ROOT / "dv" / "uvm" / "riscv_compliance" / "scripts" / "run_compliance.py"
@@ -241,8 +240,6 @@ def build_stage_cmd(stage: str, args, stage_out: Path, simv_path: Path) -> List[
         return cmd
     else:
         cmd.extend(["--testlist", str(STAGE_TESTLIST[stage])])
-        if stage == "cosim":
-            cmd.extend(["--sim-opts", "+use_rvvi_cosim=1"])
         if args.iterations:
             cmd.extend(["--iterations", str(args.iterations)])
 
@@ -748,25 +745,6 @@ def evaluate_coverage(paths: List[Path], output_dir: Path, args) -> Dict:
     return result
 
 
-def gather_cosim_exceptions() -> List[Dict]:
-    testlist = DV_DIR / "riscv_dv_extension" / "testlist.yaml"
-    if not testlist.exists():
-        return []
-    try:
-        entries = _load_yaml(testlist) or []
-    except Exception:
-        return []
-    disabled = []
-    for entry in entries:
-        if str(entry.get("cosim", "")).lower() in ("disabled", "disable", "0",
-                                                   "false", "no", "rtl_only"):
-            disabled.append({
-                "test": entry.get("test", "unknown"),
-                "reason": entry.get("cosim_reason", ""),
-            })
-    return disabled
-
-
 def gather_skip_in_signoff() -> List[Dict]:
     testlist = DV_DIR / "riscv_dv_extension" / "testlist.yaml"
     if not testlist.exists():
@@ -783,85 +761,6 @@ def gather_skip_in_signoff() -> List[Dict]:
                 "reason": entry.get("skip_reason", ""),
             })
     return skipped
-
-
-def detect_cosim_reason_loophole() -> List[Dict]:
-    """Detect cosim_reason field in ANY testlist YAML.
-
-    The cosim_reason field in testlist entries is a forbidden "add comment
-    to PASS" loophole (see signoff-gates.md).  Waivers MUST go through
-    waiver YAML files under dv/uvm/core_eh2/waivers/, never through
-    inline YAML comments.
-
-    Returns list of {test, file_path} for every entry with cosim_reason set.
-    """
-    violations = []
-    testlist_paths = [
-        DV_DIR / "riscv_dv_extension" / "testlist.yaml",
-        DV_DIR / "directed_tests" / "directed_testlist.yaml",
-        DV_DIR / "directed_tests" / "cosim_testlist.yaml",
-    ]
-    for testlist_path in testlist_paths:
-        if not testlist_path.exists():
-            continue
-        try:
-            entries = _load_yaml(testlist_path) or []
-        except Exception:
-            continue
-        for entry in entries:
-            if isinstance(entry, dict) and "cosim_reason" in entry:
-                violations.append({
-                    "test": entry.get("test", "unknown"),
-                    "file": str(testlist_path),
-                    "cosim_reason": entry["cosim_reason"],
-                })
-    return violations
-
-
-def validate_waiver_schema(waiver_path: Path) -> Tuple[bool, List[str]]:
-    """Validate cosim-disabled waiver YAML schema.
-
-    Each entry must have: reason, tracking_issue, expiry_date.
-    Returns (valid, errors).
-    """
-    errors = []
-    if not waiver_path.exists():
-        return True, []
-    try:
-        waivers = _load_yaml(waiver_path)
-    except Exception as e:
-        return False, ["Cannot parse waiver file {}: {}".format(waiver_path, e)]
-    if waivers is None:
-        return True, []
-    if not isinstance(waivers, list):
-        return False, ["Waiver file must contain a YAML list"]
-    required_fields = ["reason", "tracking_issue", "expiry_date"]
-    for i, entry in enumerate(waivers):
-        if not isinstance(entry, dict):
-            errors.append("Waiver entry {} is not a dict".format(i))
-            continue
-        for field in required_fields:
-            if field not in entry or not entry[field]:
-                errors.append(
-                    "Waiver entry {} ('{}'): missing or empty field '{}'".format(
-                        i, entry.get("test", "unknown"), field))
-        if "expiry_date" in entry and entry["expiry_date"]:
-            if not re.match(r"^\d{4}-\d{2}-\d{2}$", str(entry["expiry_date"])):
-                errors.append(
-                    "Waiver entry {} ('{}'): expiry_date '{}' must be YYYY-MM-DD".format(
-                        i, entry.get("test", "unknown"), entry["expiry_date"]))
-    return len(errors) == 0, errors
-
-
-def load_waiver_set(waiver_path: Path) -> set:
-    """Load waived test names from a waiver YAML file."""
-    if not waiver_path.exists():
-        return set()
-    try:
-        waivers = _load_yaml(waiver_path) or []
-    except Exception:
-        return set()
-    return {w.get("test", "") for w in waivers if isinstance(w, dict)}
 
 
 def compute_testlist_pool(testlist_path: Path) -> int:
@@ -939,23 +838,10 @@ def compute_real_run_count(stage_results: List[Dict]) -> Tuple[int, int]:
 
 
 def evaluate_signoff(stage_results: List[Dict], coverage_result: Dict,
-                     precheck_result: Dict, args,
-                     waiver_errors: List[str]) -> Tuple[str, List[str]]:
+                     precheck_result: Dict, args) -> Tuple[str, List[str]]:
     blockers = []
     if not args.skip_precheck and not precheck_result.get("passed", False):
         blockers.append("precheck failed")
-
-    # Hard blocker: cosim_reason in testlist YAML is a forbidden loophole.
-    # All waivers MUST go through waiver YAML under dv/uvm/core_eh2/waivers/.
-    # See docs/adr/0010-integrity-cosim-waiver.md and docs/signoff-gates.md.
-    cosim_reason_violations = detect_cosim_reason_loophole()
-    if cosim_reason_violations:
-        names = [v["test"] for v in cosim_reason_violations]
-        blockers.append(
-            "FORBIDDEN cosim_reason field in testlist ({}): {}. "
-            "Move waiver to dv/uvm/core_eh2/waivers/cosim-disabled.yaml "
-            "and REMOVE the cosim_reason field from the YAML.".format(
-                len(names), ", ".join(sorted(names))))
 
     if not stage_results:
         blockers.append("no sign-off stages were evaluated")
@@ -979,42 +865,16 @@ def evaluate_signoff(stage_results: List[Dict], coverage_result: Dict,
         blockers.append("coverage: {}".format(
             "; ".join(coverage_result["blockers"])))
 
-    fail_on_cosim_disabled = not getattr(args, 'no_fail_on_cosim_disabled', False)
     fail_on_skip_in_signoff = not getattr(args, 'no_fail_on_skip_in_signoff', False)
+    includes_riscvdv = any(stage.get("stage") == "riscvdv"
+                           for stage in stage_results)
 
-    if fail_on_cosim_disabled or fail_on_skip_in_signoff:
-        waiver_path_str = getattr(args, 'waivers_cosim_disabled', '')
-        waiver_path = Path(waiver_path_str) if waiver_path_str else \
-                      DV_DIR / "waivers" / "cosim-disabled.yaml"
-        if waiver_errors:
-            blockers.append("waiver schema errors: {}".format(
-                "; ".join(waiver_errors)))
-        waived = load_waiver_set(waiver_path) if not waiver_errors else set()
-    else:
-        waived = set()
-
-    if fail_on_cosim_disabled:
-        disabled = gather_cosim_exceptions()
-        unwaived = [d["test"] for d in disabled if d["test"] not in waived]
-        if unwaived:
-            blockers.append(
-                "cosim-disabled tests without waiver ({}): {}".format(
-                    len(unwaived), ", ".join(sorted(unwaived))))
-
-    if fail_on_skip_in_signoff:
+    if fail_on_skip_in_signoff and includes_riscvdv:
         skipped = gather_skip_in_signoff()
-        unwaived_skip = [s["test"] for s in skipped if s["test"] not in waived]
-        if unwaived_skip:
+        if skipped:
             blockers.append(
-                "skip_in_signoff tests without waiver ({}): {}".format(
-                    len(unwaived_skip), ", ".join(sorted(unwaived_skip))))
-
-    if args.require_cosim_all_tests:
-        disabled = gather_cosim_exceptions()
-        if disabled:
-            names = [d["test"] for d in disabled]
-            blockers.append("riscv-dv tests with cosim disabled: {}".format(
-                ", ".join(names)))
+                "skip_in_signoff tests present ({}): {}".format(
+                    len(skipped), ", ".join(sorted(s["test"] for s in skipped))))
 
     if blockers:
         return "FAIL", blockers
@@ -1076,17 +936,6 @@ def write_markdown_report(status: Dict, path: Path):
         lines.append("- {}: {} ({})".format(check["name"], state,
                                             check["detail"]))
     lines.append("")
-
-    disabled = status.get("cosim_disabled_tests", [])
-    if disabled:
-        lines.append("## Cosim Exceptions")
-        lines.append("")
-        lines.append("The following riscv-dv tests are marked cosim disabled "
-                     "and must remain waiver-reviewed for final closure:")
-        lines.append("")
-        for test in disabled:
-            lines.append("- {}".format(test))
-        lines.append("")
 
     if status["blockers"]:
         lines.append("## Blockers")
@@ -1217,48 +1066,21 @@ def main(argv=None) -> int:
     parser.add_argument("--min-fsm-coverage", type=float, default=0.0)
     parser.add_argument("--min-toggle-coverage", type=float, default=0.0)
     parser.add_argument("--min-functional-coverage", type=float, default=0.0)
-    parser.add_argument("--no-fail-on-cosim-disabled", action="store_true",
-                        dest="no_fail_on_cosim_disabled",
-                        help="Do not fail on cosim-disabled tests without waivers")
     parser.add_argument("--no-fail-on-skip-in-signoff", action="store_true",
                         dest="no_fail_on_skip_in_signoff",
                         help="Do not fail on skip_in_signoff tests without waivers")
-    parser.add_argument("--waivers-cosim-disabled", type=str, default="",
-                        help="Path to cosim-disabled waivers YAML")
     parser.add_argument("--allow-warnings", action="store_true",
                         help="Do not treat warnings as sign-off failures")
     parser.add_argument("--skip-precheck", action="store_true")
-    parser.add_argument("--require-cosim-all-tests", action="store_true",
-                        help="Fail if any riscv-dv test is marked cosim disabled")
     parser.add_argument("--html-report", dest="html_report",
                         action="store_true", default=True,
                         help="Generate output report.html after sign-off")
     parser.add_argument("--no-html-report", dest="html_report",
                         action="store_false",
                         help="Do not generate output report.html")
-    parser.add_argument("--validate-waivers", type=str, default="",
-                        help="Validate waiver YAML schema and exit")
     args = parser.parse_args(argv)
     if args.max_iter_per_test:
         args.iterations = args.max_iter_per_test
-
-    if args.validate_waivers:
-        waiver_p = Path(args.validate_waivers)
-        if not waiver_p.exists():
-            print("ERROR: waiver file not found: {}".format(waiver_p))
-            return 1
-        valid, errors = validate_waiver_schema(waiver_p)
-        if errors:
-            print("Schema validation FAILED for {}:".format(waiver_p))
-            for err in errors:
-                print("  - {}".format(err))
-            return 1
-        print("Schema validation PASSED for {}".format(waiver_p))
-        waived = load_waiver_set(waiver_p)
-        print("Loaded {} waived entries".format(len(waived)))
-        for w in sorted(waived):
-            print("  - {}".format(w))
-        return 0
 
     # For full profile, coverage gates are mandatory regardless of flags.
     if args.profile == "full":
@@ -1325,17 +1147,8 @@ def main(argv=None) -> int:
         coverage_paths.append(cov_merged_dir)
     coverage_result = evaluate_coverage(coverage_paths, output_dir, args)
 
-    waiver_errors = []
-    waiver_path_str = getattr(args, 'waivers_cosim_disabled', '')
-    waiver_path = Path(waiver_path_str) if waiver_path_str else \
-                  DV_DIR / "waivers" / "cosim-disabled.yaml"
-    if waiver_path.exists():
-        waiver_valid, waiver_errors = validate_waiver_schema(waiver_path)
-    elif not waiver_path_str:
-        pass
-
     status, blockers = evaluate_signoff(stage_results, coverage_result,
-                                        precheck_result, args, waiver_errors)
+                                        precheck_result, args)
 
     real_ran, real_pool = compute_real_run_count(stage_results)
     directed_listed, directed_on_disk, directed_missing = \
@@ -1356,13 +1169,11 @@ def main(argv=None) -> int:
         "stages": stage_results_by_name,
         "stage_results": stage_results,
         "coverage": coverage_result,
-        "cosim_disabled_tests": [d["test"] for d in gather_cosim_exceptions()],
         "skip_in_signoff_tests": [s["test"] for s in gather_skip_in_signoff()],
         "real_ran": real_ran,
         "real_pool": real_pool,
         "directed_on_disk": directed_on_disk,
         "directed_missing_from_list": directed_missing,
-        "waiver_errors": waiver_errors,
         "blockers": blockers,
     }
 

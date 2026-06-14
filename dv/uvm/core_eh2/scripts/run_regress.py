@@ -75,9 +75,7 @@ def load_regression_testlist(testlist_path: str) -> list:
                 "asm": test.test_srcs,
                 "rtl_test": test.rtl_test,
                 "iterations": test.iterations,
-                "cosim": "enabled"
-                         if test.rtl_test == "core_eh2_cosim_test"
-                         else "disabled",
+                "cosim": "enabled",
             }
             if test.ld_script:
                 entry["linker"] = test.ld_script
@@ -116,7 +114,7 @@ def find_generated_asm(work_dir: str, test_name: str) -> str:
 
 
 def build_sim_opts(test_entry: dict, cli_sim_opts: str = "") -> str:
-    """Merge testlist/CLI sim options and enforce per-test cosim policy."""
+    """Merge testlist/CLI sim options. RVVI cosim is always enabled."""
     pieces = []
     entry_opts = test_entry.get("sim_opts", "")
     if entry_opts:
@@ -124,30 +122,17 @@ def build_sim_opts(test_entry: dict, cli_sim_opts: str = "") -> str:
     if cli_sim_opts:
         pieces.append(cli_sim_opts.replace("\n", " ").strip())
 
-    cosim = str(test_entry.get("cosim", "enabled")).lower()
-    joined = " ".join(piece for piece in pieces if piece).strip()
-
-    has_cosim_plusarg = (
-        "+enable_cosim=" in joined or
-        "+disable_cosim=" in joined
-    )
-    if not has_cosim_plusarg:
-        if cosim in ("disabled", "disable", "false", "0", "no", "rtl_only"):
-            pieces.append("+disable_cosim=1")
-        else:
-            pieces.append("+enable_cosim=1")
-
     return " ".join(piece for piece in pieces if piece).strip()
 
 
 def add_rvvi_elf_sim_opt(sim_opts: str, binary: str) -> str:
-    """Add +rvvi_elf=<matching ELF> when RVVI cosim is requested.
+    """Add +rvvi_elf=<matching ELF> for the always-on RVVI reference.
 
     Directed/regression runs pass +bin=<hex> to the RTL, while the RVVI
     reference model needs the ELF that compile_test.py emits beside it.
     """
     sim_opts = (sim_opts or "").strip()
-    if "+use_rvvi_cosim=1" not in sim_opts or "+rvvi_elf=" in sim_opts:
+    if "+rvvi_elf=" in sim_opts:
         return sim_opts
 
     root, ext = os.path.splitext(binary)
@@ -370,13 +355,11 @@ def run_regression(args) -> RegressionSummary:
             testlist[0]["rtl_test"] = args.rtl_test
         if args.gen_opts:
             testlist[0]["gen_opts"] = args.gen_opts
-        if args.disable_cosim:
-            testlist[0]["cosim"] = "disabled"
     elif args.test:
         # Single test mode
         testlist = [{"test": args.test, "rtl_test": args.rtl_test or "core_eh2_base_test",
                      "gen_opts": args.gen_opts or "", "sim_opts": "",
-                     "cosim": "disabled" if args.disable_cosim else "enabled"}]
+                     "cosim": "enabled"}]
     else:
         testlist = load_regression_testlist(testlist_path)
 
@@ -507,8 +490,6 @@ Examples:
     parser.add_argument("--gen-opts", default="", help="Generator options")
     parser.add_argument("--sim-opts", default="", help="Simulation options")
     parser.add_argument("--binary", default="", help="Use pre-built binary")
-    parser.add_argument("--disable-cosim", action="store_true",
-                        help="Disable cosim for --test single-test mode")
     parser.add_argument("--coverage", action="store_true",
                         help="Enable simulator coverage collection")
     parser.add_argument("--waves", action="store_true",

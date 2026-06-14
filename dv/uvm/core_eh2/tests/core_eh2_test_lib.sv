@@ -11,7 +11,6 @@ import axi4_agent_pkg::*;
 import eh2_trace_agent_pkg::*;
 import eh2_irq_agent_pkg::*;
 import eh2_jtag_agent_pkg::*;
-import eh2_cosim_agent_pkg::*;
 
 // ---------------------------------------------------------------------------
 // Base class for directed test scenarios (benchmarked against ibex
@@ -618,20 +617,18 @@ class core_eh2_bitmanip_test extends core_eh2_base_test;
 endclass
 
 // ---------------------------------------------------------------------------
-// 5. Co-simulation Test - Full co-simulation checking
+// 5. RVVI Test - Standard RVVI lockstep checking
 // ---------------------------------------------------------------------------
-class core_eh2_cosim_test extends core_eh2_base_test;
+class core_eh2_rvvi_test extends core_eh2_base_test;
 
-  `uvm_component_utils(core_eh2_cosim_test)
+  `uvm_component_utils(core_eh2_rvvi_test)
 
-  function new(string name = "core_eh2_cosim_test", uvm_component parent = null);
+  function new(string name = "core_eh2_rvvi_test", uvm_component parent = null);
     super.new(name, parent);
   endfunction
 
   virtual function void build_phase(uvm_phase phase);
     super.build_phase(phase);
-    // Enable co-simulation
-    env_cfg.enable_cosim = 1;
   endfunction
 
 endclass

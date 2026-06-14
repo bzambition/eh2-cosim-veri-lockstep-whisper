@@ -13,7 +13,7 @@
 //     +-- jtag_agent (JTAG debug agent)
 //     +-- trace_monitor (instruction commit monitor)
 //     +-- dut_probe_monitor (register writeback monitor)
-//     +-- cosim_scoreboard (co-simulation scoreboard)
+//     +-- dfd_scoreboard (double-fault detection)
 
 class core_eh2_env extends uvm_env;
 
@@ -44,9 +44,6 @@ class core_eh2_env extends uvm_env;
 
   // DUT probe monitor
   eh2_dut_probe_monitor dut_probe_monitor;
-
-  // Co-simulation agent (owns scoreboard + backdoor loading)
-  eh2_cosim_agent cosim_agt;
 
   // Double-fault detection scoreboard
   core_eh2_scoreboard dfd_scoreboard;
@@ -102,26 +99,6 @@ class core_eh2_env extends uvm_env;
     // DUT probe monitor
     dut_probe_monitor = eh2_dut_probe_monitor::type_id::create("dut_probe_monitor", this);
 
-    // Co-simulation agent (only if enabled)
-    if (cfg.enable_cosim) begin
-      // Create and inject cosim_cfg from config_db so the scoreboard receives
-      // memory region mappings (issue 65).  Plusargs MEM_ICCM_BASE,
-      // MEM_DCCM_BASE etc. override the defaults set in eh2_cosim_cfg.
-      begin
-        eh2_cosim_cfg cosim_cfg;
-        cosim_cfg = eh2_cosim_cfg::type_id::create("cosim_cfg");
-        // Read plusarg overrides for DCCM/ICCM base addresses
-        void'($value$plusargs("MEM_ICCM_BASE=%h", cosim_cfg.iccm_base));
-        void'($value$plusargs("MEM_ICCM_SIZE=%h", cosim_cfg.iccm_size));
-        void'($value$plusargs("MEM_DCCM_BASE=%h", cosim_cfg.dccm_base));
-        void'($value$plusargs("MEM_DCCM_SIZE=%h", cosim_cfg.dccm_size));
-        // Sync flat fields into struct fields so scoreboard mem_region_t paths work
-        cosim_cfg.sync_mem_regions();
-        uvm_config_db#(eh2_cosim_cfg)::set(this, "cosim_agt.scoreboard", "cosim_cfg", cosim_cfg);
-      end
-      cosim_agt = eh2_cosim_agent::type_id::create("cosim_agt", this);
-    end
-
     // Double-fault detection scoreboard
     dfd_scoreboard = core_eh2_scoreboard::type_id::create("dfd_scoreboard", this);
 
@@ -146,21 +123,6 @@ class core_eh2_env extends uvm_env;
       lsu_agent.driver.enable_error_inject = 1;
       lsu_agent.driver.error_pct           = cfg.axi4_error_pct;
       `uvm_info("env", $sformatf("AXI4 error injection enabled on LSU (pct=%0d)", cfg.axi4_error_pct), UVM_LOW)
-    end
-
-    // Connect trace monitor to co-simulation agent's scoreboard
-    if (cfg.enable_cosim && cosim_agt != null) begin
-      trace_monitor.ap.connect(cosim_agt.scoreboard.trace_fifo.analysis_export);
-    end
-
-    // Connect DUT probe monitor to co-simulation agent's scoreboard
-    if (cfg.enable_cosim && cosim_agt != null) begin
-      dut_probe_monitor.ap.connect(cosim_agt.scoreboard.dut_probe_fifo.analysis_export);
-    end
-
-    // Connect LSU AXI4 monitor to co-simulation agent
-    if (cfg.enable_cosim && cosim_agt != null) begin
-      lsu_agent.ap.connect(cosim_agt.dmem_port);
     end
 
     // Connect trace monitor to double-fault detection scoreboard

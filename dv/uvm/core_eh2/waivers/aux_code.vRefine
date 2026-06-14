@@ -8,8 +8,7 @@
   (memory loading, coverage collection, debug stimulus) that is not part
   of the DUT's functional behavior.
 
-  Usage: loaded by coverage_waivers_xlm.tcl via:
-    load -refinement "waivers/aux_code.vRefine"
+  Usage: pass to the coverage report tool as a refinement file.
 
   Categories:
     - Memory load/initialization code in RTL (readmemh)

@@ -399,7 +399,7 @@ module eh2_rvvi_scoreboard #(
   endtask
 
   initial begin
-    enabled = $test$plusargs("use_rvvi_cosim");
+    enabled = 1'b1;
     initialized = 1'b0;
     saw_error = 1'b0;
     dut_retires = 0;
@@ -410,9 +410,7 @@ module eh2_rvvi_scoreboard #(
     nmi_net_idx = RVVI_INVALID_INDEX;
     debug_req_net_idx = RVVI_INVALID_INDEX;
 
-    if (!enabled) begin
-      $display("RVVI_SCOREBOARD: disabled");
-    end else begin
+    begin
       if (!$value$plusargs("rvvi_elf=%s", elf_path) || elf_path.len() == 0) begin
         $fatal(1, "RVVI_SCOREBOARD: +rvvi_elf=<program.elf> is required");
       end

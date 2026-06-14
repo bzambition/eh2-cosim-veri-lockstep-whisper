@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-# EH2 cosim proof tests. These are framework proof points and run with
-# core_eh2_cosim_test so Spike lockstep is enabled by construction.
+# EH2 RVVI cosim proof tests. These are framework proof points and run with
+# core_eh2_rvvi_test so Spike lockstep is enabled by construction.
 
 - config: eh2_cosim
-  rtl_test: core_eh2_cosim_test
+  rtl_test: core_eh2_rvvi_test
   timeout_s: 300
   gcc_opts: "-O2 -g -static -nostdlib -nostartfiles"
   ld_script: tests/asm/cosim_link.ld

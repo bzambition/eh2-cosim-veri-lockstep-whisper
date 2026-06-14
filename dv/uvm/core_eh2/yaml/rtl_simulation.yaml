@@ -26,17 +26,10 @@ vcs:
       +incdir+<tb_dir>/common/trace_agent
       +incdir+<tb_dir>/common/irq_agent
       +incdir+<tb_dir>/common/jtag_agent
-      +incdir+<tb_dir>/common/cosim_agent
       -l <build_dir>/compile.log
     cov_opts: "-cm line+tgl+assert+fsm+branch -cm_dir <build_dir>/cov -cm_hier dv/uvm/core_eh2/cover.cfg -cm_tgl portsonly -cm_tgl structarr -cm_report noinitial -cm_seqnoconst -cm_fsmcfg dv/uvm/core_eh2/cov_fsm.cfg -cm_fsmresetfilter dv/uvm/core_eh2/cov_fsm_reset_filter.cfg -cm_fsmopt report2StateFsms+allowTmp+reportvalues+reportWait+upto64"
     wave_opts: "-debug_access+all -kdb +define+UVM_VERDI_COMPWAVE"
     cosim_opts: >-
-      -f <tb_dir>/eh2_dv_cosim_dpi.f
-      -LDFLAGS '<ISS_LDFLAGS>'
-      -CFLAGS '<ISS_CFLAGS> <EXTRA_COSIM_CFLAGS>'
-      -CFLAGS '-I<tb_dir>/../../cosim'
-      <ISS_LIBS>
-      -lstdc++
 
   sim:
     cmd: >
@@ -70,18 +63,10 @@ xlm:
       +incdir+<tb_dir>/common/trace_agent
       +incdir+<tb_dir>/common/irq_agent
       +incdir+<tb_dir>/common/jtag_agent
-      +incdir+<tb_dir>/common/cosim_agent
       -l <build_dir>/compile.log
     cov_opts: "-covoverwrite -covfile <tb_dir>/cov.ccf"
     wave_opts: "-access +rwc -linedebug"
     cosim_opts: >-
-      -f <tb_dir>/eh2_dv_cosim_dpi.f
-      -I<tb_dir>/../../cosim
-      <ISS_LIBS>
-      <ISS_CFLAGS>
-      <EXTRA_COSIM_CFLAGS>
-      <ISS_LDFLAGS>
-      -lstdc++
 
   sim:
     cmd: >
@@ -135,7 +120,6 @@ nc:
       +incdir+<tb_dir>/common/trace_agent
       +incdir+<tb_dir>/common/irq_agent
       +incdir+<tb_dir>/common/jtag_agent
-      +incdir+<tb_dir>/common/cosim_agent
       +incdir+<eh2_root>/dv/cosim
       -sv_lib <eh2_root>/build/libcosim.so
       -l <build_dir>/compile.log
@@ -154,7 +138,6 @@ nc:
       +incdir+<tb_dir>/common/trace_agent
       +incdir+<tb_dir>/common/irq_agent
       +incdir+<tb_dir>/common/jtag_agent
-      +incdir+<tb_dir>/common/cosim_agent
       +incdir+<eh2_root>/dv/cosim
       -f <tb_dir>/eh2_rtl.f -f <tb_dir>/eh2_shared.f -f <tb_dir>/eh2_tb.f
       -top core_eh2_tb_top -nclibdirname <build_dir>/INCA_libs
@@ -185,11 +168,9 @@ questa:
       +incdir+<tb_dir>/common/trace_agent
       +incdir+<tb_dir>/common/irq_agent
       +incdir+<tb_dir>/common/jtag_agent
-      +incdir+<tb_dir>/common/cosim_agent
       -l <build_dir>/compile.log
     cov_opts: ""
     cosim_opts: >-
-      -f <tb_dir>/eh2_dv_cosim_dpi.f
 
   sim:
     cmd: >

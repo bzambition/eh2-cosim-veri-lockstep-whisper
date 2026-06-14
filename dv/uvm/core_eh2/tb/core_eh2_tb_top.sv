@@ -1224,9 +1224,6 @@ module core_eh2_tb_top;
     // Also provide DUT probe interface to trace monitor (for interrupt/debug state sampling)
     uvm_config_db#(virtual eh2_dut_probe_if #(.NUM_THREADS(`RV_NUM_THREADS)))::set(null, "*trace_monitor*", "probe_vif", dut_probe_intf);
 
-    // Provide DUT probe interface to cosim agent's scoreboard (for reset monitoring)
-    uvm_config_db#(virtual eh2_dut_probe_if #(.NUM_THREADS(`RV_NUM_THREADS)))::set(null, "*cosim_agt*", "probe_vif", dut_probe_intf);
-
     // Store IRQ interface
     uvm_config_db#(virtual eh2_irq_intf)::set(null, "*", "irq_vif", irq_intf);
 

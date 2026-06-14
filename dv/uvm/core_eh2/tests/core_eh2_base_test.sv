@@ -19,7 +19,6 @@ import axi4_agent_pkg::*;
 import eh2_trace_agent_pkg::*;
 import eh2_irq_agent_pkg::*;
 import eh2_jtag_agent_pkg::*;
-import eh2_cosim_agent_pkg::*;
 
 class core_eh2_base_test extends uvm_test;
 
@@ -39,7 +38,7 @@ class core_eh2_base_test extends uvm_test;
   // Test identity
   string test_name = "core_eh2_base_test";
 
-  // ISA string for cosim
+  // ISA string for RVVI reference model
   string isa_string = "";
 
   // Signature address for riscv-dv handshake
@@ -98,30 +97,6 @@ class core_eh2_base_test extends uvm_test;
   // =========================================================================
   function void end_of_elaboration_phase(uvm_phase phase);
     super.end_of_elaboration_phase(phase);
-
-    // Populate cosim_config string from env_cfg
-    // Format: "isa=<ISA>;pc=<PC>;mtvec=<MTVEC>;"
-    if (env_cfg.enable_cosim && env.cosim_agt.scoreboard != null) begin
-      string cosim_cfg_str;
-      cosim_cfg_str = $sformatf("isa=%s;pc=0x%08x;mtvec=0x%08x;pmp_regions=%0d;pmp_granularity=%0d;mhpm_counters=%0d",
-        isa_string,
-        env_cfg.boot_addr,
-        env_cfg.boot_addr & 32'hFFFFFF00,  // mtvec: 256-byte aligned, MODE=0 (direct)
-        0,             // pmp_num_regions
-        0,             // pmp_granularity
-        0              // mhpm_counter_num
-      );
-      env.cosim_agt.scoreboard.cosim_config = cosim_cfg_str;
-      `uvm_info(test_name, $sformatf("Cosim config: %s", cosim_cfg_str), UVM_LOW)
-    end
-
-    // Set pending binary path for cosim (loaded during init_cosim, avoids race)
-    if (env_cfg.enable_cosim && env.cosim_agt.scoreboard != null && env_cfg.binary != "") begin
-      env.cosim_agt.scoreboard.pending_bin_path  = env_cfg.binary;
-      env.cosim_agt.scoreboard.pending_base_addr = env_cfg.boot_addr;
-      `uvm_info(test_name, $sformatf("Deferred cosim binary load: %s at 0x%08x",
-        env_cfg.binary, env_cfg.boot_addr), UVM_LOW)
-    end
 
     `uvm_info(test_name, "Test environment:", UVM_LOW)
     env.print();
@@ -323,13 +298,6 @@ class core_eh2_base_test extends uvm_test;
   // Write a byte to all AXI4 memory models via backdoor
   virtual task write_mem_byte(bit [31:0] addr, bit [7:0] data);
     tb_vif.write_mem_byte(addr, data);
-  endtask
-
-  // Load binary into co-simulation reference model
-  virtual task load_binary_to_cosim(string bin_path, bit [31:0] addr);
-    if (env.cosim_agt.scoreboard != null) begin
-      env.cosim_agt.scoreboard.load_binary(bin_path, addr);
-    end
   endtask
 
   // =========================================================================

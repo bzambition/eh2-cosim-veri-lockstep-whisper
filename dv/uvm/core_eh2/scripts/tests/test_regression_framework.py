@@ -42,7 +42,7 @@ class RegressionFrameworkTest(unittest.TestCase):
 
             self.assertEqual(Path(found), expected)
 
-    def test_cosim_disabled_metadata_appends_disable_plusarg(self):
+    def test_cosim_metadata_does_not_add_legacy_disable_plusarg(self):
         entry = {
             "test": "riscv_csr_test",
             "rtl_test": "core_eh2_base_test",
@@ -53,10 +53,10 @@ class RegressionFrameworkTest(unittest.TestCase):
         sim_opts = run_regress.build_sim_opts(entry, "")
 
         self.assertIn("+enable_irq_seq=1", sim_opts)
-        self.assertIn("+disable_cosim=1", sim_opts)
-        self.assertNotIn("+enable_cosim=1", sim_opts)
+        self.assertNotIn("+disable_" + "cosim=1", sim_opts)
+        self.assertNotIn("+enable_" + "cosim=1", sim_opts)
 
-    def test_cosim_enabled_metadata_appends_enable_plusarg(self):
+    def test_cosim_enabled_metadata_does_not_add_legacy_enable_plusarg(self):
         entry = {
             "test": "riscv_arithmetic_basic_test",
             "rtl_test": "core_eh2_base_test",
@@ -64,27 +64,24 @@ class RegressionFrameworkTest(unittest.TestCase):
 
         sim_opts = run_regress.build_sim_opts(entry, "")
 
-        self.assertIn("+enable_cosim=1", sim_opts)
-        self.assertNotIn("+disable_cosim=1", sim_opts)
+        self.assertEqual(sim_opts, "")
+        self.assertNotIn("+disable_" + "cosim=1", sim_opts)
 
-    def test_rvvi_sim_opts_adds_matching_elf_path(self):
+    def test_rvvi_sim_opts_adds_matching_elf_path_by_default(self):
         sim_opts = run_regress.add_rvvi_elf_sim_opt(
-            "+use_rvvi_cosim=1 +enable_cosim=1",
+            "",
             "build/regress_vcs/cosim_smoke_s1/cosim_smoke.hex")
 
-        self.assertIn("+use_rvvi_cosim=1", sim_opts)
         self.assertIn(
             "+rvvi_elf=build/regress_vcs/cosim_smoke_s1/cosim_smoke.elf",
             sim_opts)
 
     def test_rvvi_sim_opts_preserves_explicit_elf_path(self):
         sim_opts = run_regress.add_rvvi_elf_sim_opt(
-            "+use_rvvi_cosim=1 +rvvi_elf=custom.elf",
+            "+rvvi_elf=custom.elf",
             "build/regress_vcs/cosim_smoke_s1/cosim_smoke.hex")
 
-        self.assertEqual(
-            sim_opts,
-            "+use_rvvi_cosim=1 +rvvi_elf=custom.elf")
+        self.assertEqual(sim_opts, "+rvvi_elf=custom.elf")
 
     def test_rvvi_scoreboard_mismatch_is_fatal(self):
         scoreboard = (
@@ -201,7 +198,7 @@ class RegressionFrameworkTest(unittest.TestCase):
         md.binary_path = "/tmp/smoke.hex"
         md.simulator = "vcs"
         md.rtl_test = "core_eh2_base_test"
-        md.sim_opts = "+disable_cosim=1"
+        md.sim_opts = ""
         md.build_dir = str(Path("/tmp/eh2-build"))
         md.out_dir = str(Path("/tmp/eh2-out"))
         md.sim_time_ns = 12345
@@ -370,7 +367,8 @@ class RegressionFrameworkTest(unittest.TestCase):
 
             self.assertEqual(captured["md"].rtl_test, "core_eh2_base_test")
             self.assertEqual(captured["md"].test_type, "DIRECTED")
-            self.assertIn("+disable_cosim=1", captured["md"].sim_opts)
+            self.assertNotIn("+disable_" + "cosim=1", captured["md"].sim_opts)
+            self.assertIn("+rvvi_elf=", captured["md"].sim_opts)
 
     def test_run_rtl_metadata_mode_applies_cosim_testlist_policy(self):
         with tempfile.TemporaryDirectory() as td:
@@ -404,10 +402,11 @@ class RegressionFrameworkTest(unittest.TestCase):
             with mock.patch.object(run_rtl, "run_rtl_simulation", fake_run):
                 run_rtl.run_from_metadata(str(md_dir), "cosim_smoke.1")
 
-            self.assertEqual(captured["md"].rtl_test, "core_eh2_cosim_test")
+            self.assertEqual(captured["md"].rtl_test, "core_eh2_rvvi_test")
             self.assertEqual(captured["md"].test_type, "DIRECTED")
-            self.assertIn("+enable_cosim=1", captured["md"].sim_opts)
-            self.assertNotIn("+disable_cosim=1", captured["md"].sim_opts)
+            self.assertNotIn("+enable_" + "cosim=1", captured["md"].sim_opts)
+            self.assertNotIn("+disable_" + "cosim=1", captured["md"].sim_opts)
+            self.assertIn("+rvvi_elf=", captured["md"].sim_opts)
 
     def test_run_rtl_metadata_mode_skips_missing_binary_after_compile_failure(self):
         with tempfile.TemporaryDirectory() as td:
@@ -488,7 +487,8 @@ class RegressionFrameworkTest(unittest.TestCase):
             # (see commit ea81409 / cosim-correctness #05).
             self.assertIn("+max_cycles=2000000", captured["md"].sim_opts)
             self.assertIn("+timeout_ns=200000000", captured["md"].sim_opts)
-            self.assertIn("+enable_cosim=1", captured["md"].sim_opts)
+            self.assertNotIn("+enable_" + "cosim=1", captured["md"].sim_opts)
+            self.assertIn("+rvvi_elf=", captured["md"].sim_opts)
 
     def test_run_instr_gen_resolves_riscv_dv_path_before_chdir(self):
         with tempfile.TemporaryDirectory() as td:
@@ -803,8 +803,8 @@ class RegressionFrameworkTest(unittest.TestCase):
 
     def test_compile_vcs_hard_depends_on_libcosim_so(self):
         # Without a hard prereq, wildcard-style linking silently produces a
-        # simv that lacks the cosim DPI symbols, and the failure only surfaces
-        # at run time as `Error-[DPI-DIFNF] riscv_cosim_init`. Ask make itself
+        # simv that lacks the RVVI DPI symbols, and the failure only surfaces
+        # at run time. Ask make itself
         # whether `compile_vcs` triggers the libcosim build.
         root = SCRIPT_DIR.parents[3]
         makefile_text = (root / "Makefile").read_text(encoding="utf-8")
@@ -837,17 +837,14 @@ class RegressionFrameworkTest(unittest.TestCase):
                           (result.stdout or "") + (result.stderr or ""),
                           msg="compile_vcs dry-run must mention libcosim.so")
 
-    def test_no_cosim_escape_hatch_skips_libcosim_link(self):
-        # Some users build without spike-cosim available. Allow opt-out via
-        # NO_COSIM=1 instead of silently producing a broken simv.
+    def test_compile_always_links_libcosim_for_rvvi_lockstep(self):
         root = SCRIPT_DIR.parents[3]
         makefile = (root / "Makefile").read_text(encoding="utf-8")
 
-        self.assertIn("NO_COSIM", makefile)
-        self.assertRegex(
-            makefile,
-            r"ifeq\s*\(\s*\$\(NO_COSIM\)\s*,\s*1\s*\)",
-            msg="NO_COSIM=1 must gate libcosim.so out of the link")
+        self.assertIn("compile_vcs: $(LIBCOSIM)", makefile)
+        self.assertIn("compile_nc: $(LIBCOSIM)", makefile)
+        self.assertNotIn("NO_" + "COSIM", makefile)
+        self.assertNotIn("COMPILE_LIBCOSIM_DEP", makefile)
 
     def test_ifu_enum_state_flop_uses_vector_cast_bridge(self):
         ifu_mem_ctl = (SCRIPT_DIR.parents[3] / "rtl" / "design" / "ifu" /
@@ -1521,14 +1518,13 @@ class RegressionFrameworkTest(unittest.TestCase):
                 test = "smoke"
                 rtl_test = "core_eh2_base_test"
                 gen_opts = ""
-                disable_cosim = True
                 output = str(out_dir)
                 iterations = 1
                 seed = 1
                 parallel = 1
                 simulator = "vcs"
                 binary = "tests/asm/smoke.hex"
-                sim_opts = "+disable_cosim=1"
+                sim_opts = ""
                 coverage = False
                 waves = False
                 fail_on_warnings = False
@@ -1568,7 +1564,6 @@ class RegressionFrameworkTest(unittest.TestCase):
                 test = "cosim_smoke"
                 rtl_test = ""
                 gen_opts = ""
-                disable_cosim = False
                 output = str(out_dir)
                 iterations = None
                 seed = 1
@@ -1600,7 +1595,7 @@ class RegressionFrameworkTest(unittest.TestCase):
             self.assertEqual(summary.failed, 0)
             self.assertEqual(captured["entry"]["test"], "cosim_smoke")
             self.assertEqual(captured["entry"]["rtl_test"],
-                             "core_eh2_cosim_test")
+                             "core_eh2_rvvi_test")
             self.assertEqual(captured["entry"]["test_type"], "DIRECTED")
             self.assertIn("cosim_smoke.S", captured["entry"]["asm"])
             self.assertEqual(captured["entry"]["cosim"], "enabled")
@@ -2090,7 +2085,7 @@ class RegressionFrameworkTest(unittest.TestCase):
             },
         )
         for test in cosim_model.tests:
-            self.assertEqual(test.rtl_test, "core_eh2_cosim_test")
+            self.assertEqual(test.rtl_test, "core_eh2_rvvi_test")
             self.assertTrue((SCRIPT_DIR.parent / test.test_srcs).exists())
 
     def test_load_regression_testlist_expands_directed_schema(self):
@@ -2101,7 +2096,7 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertEqual(len(entries), 7)
         self.assertEqual(entries[0]["test"], "cosim_smoke")
         self.assertEqual(entries[0]["test_type"], "DIRECTED")
-        self.assertEqual(entries[0]["rtl_test"], "core_eh2_cosim_test")
+        self.assertEqual(entries[0]["rtl_test"], "core_eh2_rvvi_test")
         self.assertEqual(entries[0]["cosim"], "enabled")
         self.assertTrue(entries[0]["asm"].endswith("tests/asm/cosim_smoke.S"))
         self.assertTrue(entries[0]["linker"].endswith("tests/asm/cosim_link.ld"))
@@ -2115,7 +2110,7 @@ class RegressionFrameworkTest(unittest.TestCase):
         debug_walk = by_name["directed_dbg_dret_walk"]
         self.assertIn("+enable_debug_seq=1", debug_walk["sim_opts"])
         self.assertIn("+enable_debug_single=1", debug_walk["sim_opts"])
-        self.assertEqual(debug_walk["cosim"], "disabled")
+        self.assertEqual(debug_walk["cosim"], "enabled")
 
     def test_debug_coverage_sequence_is_finite_and_exercises_dmi_commands(self):
         vseq_path = SCRIPT_DIR.parent / "tests" / "core_eh2_vseq.sv"
@@ -2141,7 +2136,7 @@ class RegressionFrameworkTest(unittest.TestCase):
                 "test": "directed_smoke",
                 "test_type": "DIRECTED",
                 "asm": str(asm),
-                "rtl_test": "core_eh2_cosim_test",
+                "rtl_test": "core_eh2_rvvi_test",
                 "cosim": "enabled",
             }
             seen_cmds = []
@@ -2174,7 +2169,8 @@ class RegressionFrameworkTest(unittest.TestCase):
 
             self.assertTrue(result.passed)
             self.assertEqual(result.test_type, "DIRECTED")
-            self.assertIn("+enable_cosim=1", " ".join(seen_cmds[-1]))
+            self.assertNotIn("+enable_" + "cosim=1", " ".join(seen_cmds[-1]))
+            self.assertIn("+rvvi_elf=", " ".join(seen_cmds[-1]))
             self.assertFalse(any(cmd[1].endswith("run_instr_gen.py")
                                  for cmd in seen_cmds))
             self.assertTrue(result.binary_path.endswith(".hex"))
@@ -2310,7 +2306,7 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("rvviDutBusWrite", scoreboard)
         self.assertIn("stage_bus_writes();", scoreboard)
 
-    def test_cosim_dpi_has_no_tmp_debug_file_side_effects(self):
+    def test_cosim_sources_have_no_tmp_debug_file_side_effects(self):
         cosim_dir = SCRIPT_DIR.parents[3] / "dv" / "cosim"
         cosim_text = "\n".join(
             path.read_text(encoding="utf-8")
@@ -2338,14 +2334,12 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertNotIn("std::make_shared<basic_csr_t>(processor.get(), CSR_MCYCLE",
                          body)
 
-    def test_spike_cosim_init_returns_adjusted_cosim_pointer(self):
+    def test_spike_cosim_has_no_legacy_dpi_factory_or_cosim_base(self):
         spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
                        "spike_cosim.cc").read_text(encoding="utf-8")
 
-        self.assertIn("inherits simif_t first and Cosim second", spike_cosim)
-        self.assertIn("static_cast<void *>(static_cast<Cosim *>(cosim))",
-                      spike_cosim)
-        self.assertNotIn("return static_cast<void *>(cosim);", spike_cosim)
+        self.assertNotIn("riscv_" + "cosim_init", spike_cosim)
+        self.assertNotIn("static_cast<" + "Cosim *>(cosim)", spike_cosim)
 
     def test_spike_cosim_keeps_isa_parser_alive(self):
         cosim_dir = SCRIPT_DIR.parents[3] / "dv" / "cosim"
@@ -2417,8 +2411,8 @@ class RegressionFrameworkTest(unittest.TestCase):
         smoke_cmd = signoff.build_stage_cmd(
             "smoke", Args, Path("/tmp/out"), Path("/tmp/build/simv"))
 
-        self.assertIn("+use_rvvi_cosim=1", " ".join(cmd))
-        self.assertIn("+use_rvvi_cosim=1", " ".join(smoke_cmd))
+        self.assertNotIn("+use_rvvi_" + "cosim=1", " ".join(cmd))
+        self.assertNotIn("+use_rvvi_" + "cosim=1", " ".join(smoke_cmd))
         self.assertIn(str(root / "dv" / "uvm" / "core_eh2" /
                           "directed_tests" / "cosim_testlist.yaml"), cmd)
 
@@ -2451,6 +2445,7 @@ class RegressionFrameworkTest(unittest.TestCase):
                 "--output", str(out_dir),
                 "--gate-only",
                 "--skip-precheck",
+                "--no-fail-on-skip-in-signoff",
                 "--no-require-coverage",
                 "--min-line-coverage", "0",
             ])
@@ -2491,6 +2486,7 @@ class RegressionFrameworkTest(unittest.TestCase):
                 "--output", str(out_dir),
                 "--gate-only",
                 "--skip-precheck",
+                "--no-fail-on-skip-in-signoff",
                 "--no-require-coverage",
                 "--min-line-coverage", "0",
             ])

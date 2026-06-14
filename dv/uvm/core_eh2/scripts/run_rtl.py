@@ -208,19 +208,17 @@ def _merge_sim_opts(test_entry: dict, global_sim_opts: str) -> str:
     _append_opt(pieces, test_entry.get("sim_opts", ""))
     _append_opt(pieces, global_sim_opts)
 
-    joined = " ".join(pieces).strip()
-    has_cosim_plusarg = (
-        "+enable_cosim=" in joined or
-        "+disable_cosim=" in joined
-    )
-    if not has_cosim_plusarg:
-        cosim = str(test_entry.get("cosim", "enabled")).lower()
-        if cosim in ("disabled", "disable", "false", "0", "no", "rtl_only"):
-            pieces.append("+disable_cosim=1")
-        else:
-            pieces.append("+enable_cosim=1")
-
     return " ".join(piece for piece in pieces if piece).strip()
+
+
+def add_rvvi_elf_sim_opt(sim_opts: str, binary: Path) -> str:
+    sim_opts = (sim_opts or "").strip()
+    if "+rvvi_elf=" in sim_opts:
+        return sim_opts
+    root, ext = os.path.splitext(str(binary))
+    elf_path = root + ".elf" if ext in (".hex", ".bin") else str(binary) + ".elf"
+    return " ".join(piece for piece in (sim_opts, "+rvvi_elf={}".format(elf_path))
+                    if piece)
 
 
 def _directed_test_entry(md: RegressionMetadata, test_name: str) -> dict:
@@ -240,9 +238,7 @@ def _directed_test_entry(md: RegressionMetadata, test_name: str) -> dict:
                     "rtl_test": test.rtl_test,
                     "sim_opts": "",
                     "test_type": "DIRECTED",
-                    "cosim": "enabled"
-                             if test.rtl_test == "core_eh2_cosim_test"
-                             else "disabled",
+                    "cosim": "enabled",
                 }
     return {}
 
@@ -338,7 +334,8 @@ def run_from_metadata(dir_metadata: str, test_dot_seed: str) -> TestRunResult:
     md.test_type = test_entry.get("test_type", "RISCVDV")
     md.rtl_test = test_entry.get("rtl_test") or md_all.rtl_test or \
         "core_eh2_base_test"
-    md.sim_opts = _merge_sim_opts(test_entry, md_all.sim_opts)
+    md.sim_opts = add_rvvi_elf_sim_opt(
+        _merge_sim_opts(test_entry, md_all.sim_opts), binary)
     md.eh2_root = md_all.eh2_root
     md.build_dir = str(Path(md_all.eh2_root) / "build")
     md.out_dir = str(test_dir)

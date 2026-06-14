@@ -5,7 +5,6 @@ verification platform.
 
 ## Files
 
-- `coverage_waivers_xlm.tcl` - Xcelium-specific coverage waivers
 - `unr.vRefine` - Unreachable code refinement
 - `aux_code.vRefine` - Auxiliary code refinement
 
@@ -16,9 +15,6 @@ These files are consumed by the coverage merge and reporting tools:
 ```bash
 # VCS coverage with waivers
 urg -dir build/cov/simv.vdb -report build/cov_report -elfile waivers/unr.vRefine
-
-# Xcelium coverage with waivers
-imc -load build/cov -exec waivers/coverage_waivers_xlm.tcl
 ```
 
 ## Adding New Waivers

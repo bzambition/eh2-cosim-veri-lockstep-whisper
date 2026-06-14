@@ -54,8 +54,6 @@ class core_eh2_rf_addr_intg_test extends core_eh2_base_test;
 
   virtual function void build_phase(uvm_phase phase);
     super.build_phase(phase);
-    env_cfg.enable_cosim = 0;
-    env_cfg.disable_cosim = 1;
     env_cfg.timeout_ns = 64'd5_000_000_000;
     env_cfg.max_cycles = 500_000;
   endfunction
@@ -153,8 +151,6 @@ class core_eh2_ram_intg_test extends core_eh2_base_test;
 
   virtual function void build_phase(uvm_phase phase);
     super.build_phase(phase);
-    env_cfg.enable_cosim = 0;
-    env_cfg.disable_cosim = 1;
     env_cfg.enable_mem_error = 1;
     env_cfg.timeout_ns = 64'd5_000_000_000;
     env_cfg.max_cycles = 500_000;
@@ -242,8 +238,6 @@ class core_eh2_icache_intg_test extends core_eh2_base_test;
 
   virtual function void build_phase(uvm_phase phase);
     super.build_phase(phase);
-    env_cfg.enable_cosim = 0;
-    env_cfg.disable_cosim = 1;
     env_cfg.timeout_ns = 64'd5_000_000_000;
     env_cfg.max_cycles = 500_000;
   endfunction
@@ -331,8 +325,6 @@ class core_eh2_mem_intg_error_test extends core_eh2_base_test;
 
   virtual function void build_phase(uvm_phase phase);
     super.build_phase(phase);
-    env_cfg.enable_cosim = 0;
-    env_cfg.disable_cosim = 1;
     env_cfg.enable_mem_error = 1;
     env_cfg.enable_axi4_error_inject = 1;
     env_cfg.axi4_error_pct = 100;

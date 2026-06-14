@@ -27,11 +27,6 @@ dv/uvm/core_eh2/common/irq_agent/eh2_irq_agent_pkg.sv
 dv/uvm/core_eh2/common/jtag_agent/eh2_jtag_intf.sv
 dv/uvm/core_eh2/common/jtag_agent/eh2_jtag_agent_pkg.sv
 
-// Co-simulation agent (scoreboard, DPI)
-+incdir+dv/uvm/core_eh2/common/cosim_agent
-+incdir+dv/cosim
-dv/uvm/core_eh2/common/cosim_agent/eh2_cosim_agent_pkg.sv
-
 // Halt/Run agent (MPC halt/run stimulus)
 +incdir+dv/uvm/core_eh2/common/halt_run_agent
 dv/uvm/core_eh2/common/halt_run_agent/eh2_halt_run_intf.sv

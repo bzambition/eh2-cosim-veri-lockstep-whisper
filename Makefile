@@ -65,7 +65,6 @@ WAVES           ?= 0
 COV             ?= 1
 ITERATIONS      ?= 1
 PARALLEL        ?= 4
-NO_COSIM        ?= 0
 OUT             ?=
 SIM_OPTS        ?=
 
@@ -152,7 +151,7 @@ EH2 Cosim 验证平台 — Makefile 入口（cosim-only 精简版）
 [ 构建 ]
   make asm                编译 tests/asm/*.S → hex/elf/dis
   make spike              在 vendor/spike 内构建并安装 Spike
-  make cosim              编译 Spike DPI libcosim.so（默认链接 vendor/spike/install；NO_COSIM=1 跳过）
+  make cosim              编译 Spike RVVI-API DPI libcosim.so（默认链接 vendor/spike/install）
   make rvviref            独立运行 Spike RVVI-API ref，输出 build/rvviref/rvvi_ref_trace.log
   make compile            编译 UVM testbench（SIMULATOR=vcs→simv / nc→INCA_libs）；COV=0|1  WAVES=0|1
 
@@ -182,14 +181,6 @@ $(BUILD_DIR):
 # cosim — 编译 Spike DPI libcosim.so
 # ============================================================
 LIBCOSIM := $(BUILD_DIR)/libcosim.so
-
-ifeq ($(NO_COSIM),1)
-COMPILE_LIBCOSIM_DEP :=
-COMPILE_LIBCOSIM_LINK :=
-else
-COMPILE_LIBCOSIM_DEP := $(LIBCOSIM)
-COMPILE_LIBCOSIM_LINK := $(CURDIR)/$(LIBCOSIM)
-endif
 
 # 机器相关路径，全部在 env.mk 设（tracked 文件零绝对路径）。
 # SPIKE_CXX 必须是 C++17 编译器（系统 gcc 4.8.5 不行 → 用 devtoolset 的 g++ 等）。
@@ -224,11 +215,11 @@ spike:
 
 cosim: $(LIBCOSIM)
 
-$(LIBCOSIM): $(COSIM_DIR)/spike_cosim.cc $(COSIM_DIR)/cosim_dpi.cc \
+$(LIBCOSIM): $(COSIM_DIR)/spike_cosim.cc \
              $(COSIM_DIR)/spike_rvvi.cc $(COSIM_DIR)/spike_rvvi.h \
-             $(COSIM_DIR)/spike_cosim.h $(COSIM_DIR)/cosim.h | $(BUILD_DIR)
+             $(COSIM_DIR)/spike_cosim.h | $(BUILD_DIR)
 	@if [ -z "$(SPIKE_DIR)" ] || [ ! -d "$(SPIKE_INSTALL)" ]; then \
-	  echo "ERROR: SPIKE_INSTALL=$(SPIKE_INSTALL) 不存在。请先运行 make spike，或传 NO_COSIM=1。"; exit 1; fi
+	  echo "ERROR: SPIKE_INSTALL=$(SPIKE_INSTALL) 不存在。请先运行 make spike。"; exit 1; fi
 	@if [ -z "$(SVDPI_INCLUDE)" ]; then \
 	  echo "ERROR: 找不到 svdpi.h。请在 env.mk 设 NC_INSTALL 或 VCS_HOME，或显式 SVDPI_INCLUDE=<dir>。"; exit 1; fi
 	@echo "=== [cosim] 构建 libcosim.so (svdpi from: $(SVDPI_INCLUDE_DIR)) ==="
@@ -245,8 +236,7 @@ $(LIBCOSIM): $(COSIM_DIR)/spike_cosim.cc $(COSIM_DIR)/cosim_dpi.cc \
 	  -Ivendor/rvvi/include/host/rvvi \
 	  -I$(SVDPI_INCLUDE_DIR) $(SPIKE_CXXFLAGS) \
 	  -o $(LIBCOSIM) \
-	  $(COSIM_DIR)/spike_cosim.cc $(COSIM_DIR)/cosim_dpi.cc \
-	  $(COSIM_DIR)/spike_rvvi.cc \
+	  $(COSIM_DIR)/spike_cosim.cc $(COSIM_DIR)/spike_rvvi.cc \
 	  -L$(SPIKE_BUILD) -lspike_all \
 	  $(SPIKE_DIR)/build/libsoftfloat.a \
 	  -lpthread -ldl
@@ -306,7 +296,7 @@ asm:
 # ============================================================
 compile: compile_$(SIMULATOR)
 
-compile_vcs: $(COMPILE_LIBCOSIM_DEP) | $(BUILD_DIR)
+compile_vcs: $(LIBCOSIM) | $(BUILD_DIR)
 	@echo "=== [compile] VCS UVM testbench (BUILD_SUBDIR=$(BUILD_SUBDIR)) ==="
 	@mkdir -p $(BUILD_SUBDIR)
 	$(VCS) -full64 -assert svaext -sverilog \
@@ -320,18 +310,17 @@ compile_vcs: $(COMPILE_LIBCOSIM_DEP) | $(BUILD_DIR)
 	  +incdir+$(TB_DIR)/common/trace_agent \
 	  +incdir+$(TB_DIR)/common/irq_agent \
 	  +incdir+$(TB_DIR)/common/jtag_agent \
-	  +incdir+$(TB_DIR)/common/cosim_agent \
 	  +incdir+$(COSIM_DIR) \
 	  -f $(RTL_F) -f $(SHARED_F) -f $(TB_F) \
 	  -top core_eh2_tb_top \
-	  $(COMPILE_LIBCOSIM_LINK) \
+	  $(CURDIR)/$(LIBCOSIM) \
 	  -Mdir=$(BUILD_SUBDIR)/csrc -o $(BUILD_SUBDIR)/simv \
 	  -l $(BUILD_SUBDIR)/compile.log \
 	  -timescale=1ns/1ps -debug_access+all -kdb \
 	  $(if $(filter 1,$(COV)),$(VCS_COMPILE_COV_OPTS),)
 	@echo "=== [compile] simv 完成: $(BUILD_SUBDIR)/simv ==="
 
-compile_nc: $(COMPILE_LIBCOSIM_DEP) | $(BUILD_DIR)
+compile_nc: $(LIBCOSIM) | $(BUILD_DIR)
 	@echo "=== [compile] NC (irun) UVM testbench (BUILD_SUBDIR=$(BUILD_SUBDIR)) ==="
 	@mkdir -p $(BUILD_SUBDIR)
 	$(IRUN) -64bit -uvmhome $(NC_UVM_HOME) -sv -assert \
@@ -344,13 +333,12 @@ compile_nc: $(COMPILE_LIBCOSIM_DEP) | $(BUILD_DIR)
 	  +incdir+$(TB_DIR)/common/trace_agent \
 	  +incdir+$(TB_DIR)/common/irq_agent \
 	  +incdir+$(TB_DIR)/common/jtag_agent \
-	  +incdir+$(TB_DIR)/common/cosim_agent \
 	  +incdir+$(COSIM_DIR) \
 	  -f $(RTL_F) -f $(SHARED_F) -f $(TB_F) \
 	  -top core_eh2_tb_top -elaborate \
 	  -nclibdirname $(BUILD_SUBDIR)/INCA_libs \
 	  -access +rwc -timescale 1ns/1ps -errormax 500 \
-	  $(if $(COMPILE_LIBCOSIM_LINK),-sv_lib $(COMPILE_LIBCOSIM_LINK),) \
+	  -sv_lib $(CURDIR)/$(LIBCOSIM) \
 	  -l $(BUILD_SUBDIR)/compile.log \
 	  $(if $(filter 1,$(COV)),$(NC_COMPILE_COV_OPTS),)
 	@echo "=== [compile] NC 完成: $(BUILD_SUBDIR)/INCA_libs ==="
@@ -359,14 +347,13 @@ compile_nc: $(COMPILE_LIBCOSIM_DEP) | $(BUILD_DIR)
 # 仿真 — smoke / regress / compliance
 # ============================================================
 smoke: asm
-	@$(MAKE) --no-print-directory compile BUILD_SUBDIR=$(BUILD_DIR)/smoke_$(SIMULATOR) \
-	  NO_COSIM=$(if $(findstring +use_rvvi_cosim=1,$(SIM_OPTS)),0,1)
+	@$(MAKE) --no-print-directory compile BUILD_SUBDIR=$(BUILD_DIR)/smoke_$(SIMULATOR)
 	@echo "=== [smoke] 运行 smoke 测试 ==="
 	python3 $(SCRIPTS_DIR)/run_regress.py \
 	  --test smoke --binary $(ASM_DIR)/smoke.hex \
 	  --simulator $(SIMULATOR) --seed 1 \
 	  --rtl-test core_eh2_base_test \
-	  --sim-opts "$(if $(findstring +use_rvvi_cosim=1,$(SIM_OPTS)),,+disable_cosim=1) $(SIM_OPTS) +rvvi_elf=$(ASM_DIR)/smoke.elf +rvvi_trace_file=$(BUILD_DIR)/smoke_$(SIMULATOR)/smoke_s1/rvvi_trace.log" \
+	  --sim-opts "$(SIM_OPTS) +rvvi_elf=$(ASM_DIR)/smoke.elf +rvvi_trace_file=$(BUILD_DIR)/smoke_$(SIMULATOR)/smoke_s1/rvvi_trace.log" \
 	  --build-dir $(BUILD_DIR)/smoke_$(SIMULATOR) \
 	  --output $(BUILD_DIR)/smoke_$(SIMULATOR) \
 	  $(if $(filter 1,$(COV)),--coverage,) \
@@ -419,13 +406,14 @@ watch_wave: asm cosim
 	  $(DEFINES) +incdir+$(SNAPSHOTS) $(SNAPSHOTS)/eh2_pdef.vh \
 	  +incdir+$(TB_DIR)/common/axi4_agent +incdir+$(TB_DIR)/common/trace_agent \
 	  +incdir+$(TB_DIR)/common/irq_agent +incdir+$(TB_DIR)/common/jtag_agent \
-	  +incdir+$(TB_DIR)/common/cosim_agent +incdir+$(COSIM_DIR) \
+	  +incdir+$(COSIM_DIR) \
 	  -f $(RTL_F) -f $(SHARED_F) -f $(TB_F) -top core_eh2_tb_top \
 	  -nclibdirname $(BUILD_DIR)/watch_$(TEST)_nc/INCA_libs \
 	  -access +rwc -timescale 1ns/1ps -errormax 500 \
 	  -sv_lib $(CURDIR)/$(LIBCOSIM) \
 	  +UVM_TESTNAME=core_eh2_base_test +bin=$(ASM_DIR)/$(TEST).hex \
 	  +seed=1 +timeout_ns=$(TIMEOUT_NS) \
+	  +rvvi_elf=$(ASM_DIR)/$(TEST).elf \
 	  -l $(BUILD_DIR)/watch_$(TEST)_nc/$(TEST)_s1/sim.log \
 	  -gui -input $(TB_DIR)/nc_waves_interactive.tcl
 	@echo "=== [watch_wave] live 退出 ==="
@@ -437,6 +425,7 @@ watch_wave: asm
 	python3 $(SCRIPTS_DIR)/run_regress.py \
 	  --test $(TEST) --binary $(ASM_DIR)/$(TEST).hex \
 	  --simulator $(SIMULATOR) --seed 1 --rtl-test core_eh2_base_test \
+	  --sim-opts "$(SIM_OPTS) +rvvi_elf=$(ASM_DIR)/$(TEST).elf +rvvi_trace_file=$(BUILD_DIR)/watch_$(TEST)_$(SIMULATOR)/$(TEST)_s1/rvvi_trace.log" \
 	  --build-dir $(BUILD_DIR)/watch_$(TEST)_$(SIMULATOR) \
 	  --output $(BUILD_DIR)/watch_$(TEST)_$(SIMULATOR) --waves
 	@if [ "$(SIMULATOR)" = "vcs" ]; then \

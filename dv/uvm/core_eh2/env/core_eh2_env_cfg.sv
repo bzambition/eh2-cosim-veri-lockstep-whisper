@@ -8,7 +8,6 @@
 //   +enable_irq_seq=1          Enable interrupt stimulus sequences
 //   +enable_debug_seq=1        Enable debug stimulus sequences
 //   +enable_fetch_toggle=1     Enable fetch-enable toggling
-//   +enable_cosim=1            Enable co-simulation checking
 //   +enable_mem_error=1        Enable memory error injection
 //   +enable_axi4_error_inject=1  Enable AXI4 error response injection
 //   +axi4_error_pct=5          AXI4 error injection percentage (0-100)
@@ -37,12 +36,6 @@ class core_eh2_env_cfg extends uvm_object;
 
   // Fetch enable
   bit enable_fetch_toggle       = 0;  // Random fetch-enable toggling
-
-  // =========================================================================
-  // Co-simulation control
-  // =========================================================================
-  bit enable_cosim              = 1;  // Enable co-simulation checking
-  bit disable_cosim             = 0;  // Disable co-simulation (override)
 
   // =========================================================================
   // AXI4 error injection control
@@ -91,7 +84,6 @@ class core_eh2_env_cfg extends uvm_object;
   // Binary paths
   // =========================================================================
   string binary                 = "";
-  string cosim_binary           = "";  // Separate binary for cosim model
 
   function new(string name = "core_eh2_env_cfg");
     super.new(name);
@@ -107,8 +99,6 @@ class core_eh2_env_cfg extends uvm_object;
     void'($value$plusargs("enable_fetch_toggle=%0d", enable_fetch_toggle));
     void'($value$plusargs("enable_axi4_error_inject=%0d", enable_axi4_error_inject));
     void'($value$plusargs("axi4_error_pct=%d", axi4_error_pct));
-    void'($value$plusargs("enable_cosim=%0d", enable_cosim));
-    void'($value$plusargs("disable_cosim=%0d", disable_cosim));
     void'($value$plusargs("enable_mem_error=%0d", enable_mem_error));
     void'($value$plusargs("enable_spurious_response=%0d", enable_spurious_response));
     void'($value$plusargs("spurious_response_pct=%d", spurious_response_pct));
@@ -118,15 +108,11 @@ class core_eh2_env_cfg extends uvm_object;
     void'($value$plusargs("timeout_ns=%d", timeout_ns));
     void'($value$plusargs("max_cycles=%d", max_cycles));
     void'($value$plusargs("bin=%s", binary));
-    void'($value$plusargs("bin_cosim=%s", cosim_binary));
     void'($value$plusargs("boot_addr=%h", boot_addr));
     void'($value$plusargs("irq_delay_min=%d", irq_delay_min));
     void'($value$plusargs("irq_delay_max=%d", irq_delay_max));
     void'($value$plusargs("debug_delay_min=%d", debug_delay_min));
     void'($value$plusargs("debug_delay_max=%d", debug_delay_max));
-
-    // If disable_cosim is set, override enable_cosim
-    if (disable_cosim) enable_cosim = 0;
 
     // If enable_irq_seq is set, enable single + drop IRQ sequences
     // (multiple and NMI must be enabled independently)
@@ -143,7 +129,6 @@ class core_eh2_env_cfg extends uvm_object;
     s = {s, $sformatf("  Debug sequences: debug=%0b stress=%0b single=%0b\n",
          enable_debug_seq, enable_debug_stress, enable_debug_single)};
     s = {s, $sformatf("  Fetch toggle=%0b\n", enable_fetch_toggle)};
-    s = {s, $sformatf("  Cosim: enable=%0b\n", enable_cosim)};
     s = {s, $sformatf("  Memory: error=%0b spurious=%0b (pct=%0d)\n",
          enable_mem_error, enable_spurious_response, spurious_response_pct)};
     s = {s, $sformatf("  AXI4 error inject=%0b (pct=%0d)\n",

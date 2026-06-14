@@ -7,8 +7,7 @@
   This file documents code that is architecturally unreachable or cannot be
   exercised by the UVM testbench. Each entry must include a reason comment.
 
-  Usage: loaded by coverage_waivers_xlm.tcl via:
-    load -refinement "waivers/unr.vRefine"
+  Usage: pass to the coverage report tool as a refinement file.
 
   To add entries:
     1. Identify the unreachable block in IMC coverage report

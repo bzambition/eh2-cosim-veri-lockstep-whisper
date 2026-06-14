@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // EH2 Spike Co-simulation Implementation
 //
-// Concrete implementation of the Cosim abstract class using Spike
-// as the reference model for EH2 verification.
+// Spike reference model for EH2 RVVI cosim verification.
 // Based on Ibex's spike_cosim.cc pattern, adapted for EH2.
 
 #ifndef EH2_SPIKE_COSIM_H
@@ -14,7 +13,6 @@
 #include <string>
 #include <vector>
 
-#include "cosim.h"
 #include "riscv/devices.h"
 #include "riscv/isa_parser.h"
 #include "riscv/log_file.h"
@@ -27,7 +25,20 @@
 // Maximum number of hardware threads supported
 #define COSIM_MAX_THREADS 2
 
-class SpikeCosim : public simif_t, public Cosim {
+struct DSideAccessInfo {
+  bool store;
+  uint32_t data;
+  uint32_t addr;
+  uint32_t be;
+  bool error;
+  bool misaligned_first;
+  bool misaligned_second;
+  bool misaligned_first_saw_error;
+  bool m_mode_access;
+  bool widened_load;
+};
+
+class SpikeCosim : public simif_t {
 public:
   SpikeCosim(const std::string &isa_string, uint32_t start_pc,
              uint32_t start_mtvec, const std::string &trace_log_path,
@@ -42,34 +53,33 @@ public:
   virtual void proc_reset(unsigned id) override;
   virtual const char *get_symbol(uint64_t addr) override;
 
-  // Cosim implementation
-  void add_memory(uint32_t base_addr, size_t size) override;
+  void add_memory(uint32_t base_addr, size_t size);
   bool backdoor_write_mem(uint32_t addr, size_t len,
-                          const uint8_t *data_in) override;
-  bool backdoor_read_mem(uint32_t addr, size_t len, uint8_t *data_out) override;
+                          const uint8_t *data_in);
+  bool backdoor_read_mem(uint32_t addr, size_t len, uint8_t *data_out);
   bool step(uint32_t write_reg, uint32_t write_reg_data, uint32_t pc,
             bool sync_trap, bool suppress_reg_write,
-            int thread_id = 0) override;
+            int thread_id = 0);
 
   void set_mip(uint32_t pre_mip, uint32_t post_mip,
-               int thread_id = 0) override;
-  void set_nmi(bool nmi, int thread_id = 0) override;
-  void set_nmi_int(bool nmi_int, int thread_id = 0) override;
-  void set_debug_req(bool debug_req, int thread_id = 0) override;
-  void set_mcycle(uint64_t mcycle, int thread_id = 0) override;
+               int thread_id = 0);
+  void set_nmi(bool nmi, int thread_id = 0);
+  void set_nmi_int(bool nmi_int, int thread_id = 0);
+  void set_debug_req(bool debug_req, int thread_id = 0);
+  void set_mcycle(uint64_t mcycle, int thread_id = 0);
   void set_csr(const int csr_num, const uint32_t new_val,
-               int thread_id = 0) override;
+               int thread_id = 0);
   void notify_dside_access(const DSideAccessInfo &access_info,
-                           int thread_id = 0) override;
-  void set_iside_error(uint32_t addr, int thread_id = 0) override;
-  const std::vector<std::string> &get_errors() override;
-  void clear_errors() override;
-  unsigned int get_insn_cnt(int thread_id = 0) override;
+                           int thread_id = 0);
+  void set_iside_error(uint32_t addr, int thread_id = 0);
+  const std::vector<std::string> &get_errors();
+  void clear_errors();
+  unsigned int get_insn_cnt(int thread_id = 0);
 
   // Trap CSR queries (RISK-9)
-  uint32_t get_mcause(int thread_id = 0) override;
-  uint32_t get_mepc(int thread_id = 0) override;
-  uint32_t get_mtvec(int thread_id = 0) override;
+  uint32_t get_mcause(int thread_id = 0);
+  uint32_t get_mepc(int thread_id = 0);
+  uint32_t get_mtvec(int thread_id = 0);
 
   // RVVI ref-only API helpers. These step Spike without DUT comparison.
   bool ref_load_elf(const std::string &elf_path);

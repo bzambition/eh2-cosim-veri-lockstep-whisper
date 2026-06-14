@@ -36,7 +36,7 @@ dv/uvm/core_eh2/
 │   ├── jtag_agent/          # JTAG 调试（active）
 │   ├── halt_run_agent/      # MPC halt/run（active）
 │   ├── trace_agent/         # trace 监视器（passive，从 RTL trace_pkt 取 retired 指令）
-│   └── cosim_agent/         # cosim agent（Spike DPI 协同仿真）
+│   └── rvvi_agent/          # RVVI adapter + RVVI-API lockstep scoreboard
 ├── tests/                    # base test、test_lib、seq_lib、vseq
 ├── fcov/                     # 功能覆盖率（fcov_if、fcov_bind、pmp_fcov_if）
 ├── riscv_dv_extension/       # riscv-dv 扩展（asm_program_gen、testlist.yaml）
@@ -45,7 +45,7 @@ dv/uvm/core_eh2/
 ├── directed_tests/           # 定向测试（ASM + testlist）
 │   ├── directed_testlist.yaml  # 13 个 directed test
 │   └── cosim_testlist.yaml     # 5 个 cosim proof test
-├── waivers/                  # 仿真警告 waiver
+├── waivers/                  # 覆盖率 refinement
 └── Makefile                  # 本地 make 入口
 ```
 
