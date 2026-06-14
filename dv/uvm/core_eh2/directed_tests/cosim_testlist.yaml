@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: Apache-2.0
+# EH2 cosim proof tests. These are framework proof points and run with
+# core_eh2_cosim_test so Spike lockstep is enabled by construction.
+
+- config: eh2_cosim
+  rtl_test: core_eh2_cosim_test
+  timeout_s: 300
+  gcc_opts: "-O2 -g -static -nostdlib -nostartfiles"
+  ld_script: tests/asm/cosim_link.ld
+  includes: tests/asm
+
+- test: cosim_smoke
+  desc: "Cosim initialization, binary load, first Spike step, mailbox PASS"
+  config: eh2_cosim
+  test_srcs: tests/asm/cosim_smoke.S
+  iterations: 1
+
+- test: cosim_alu
+  desc: "Register writeback correlation for deterministic ALU instructions"
+  config: eh2_cosim
+  test_srcs: tests/asm/cosim_alu.S
+  iterations: 1
+
+- test: cosim_load_store
+  desc: "LSU AXI memory notification path for deterministic loads/stores"
+  config: eh2_cosim
+  test_srcs: tests/asm/cosim_load_store.S
+  iterations: 1
+
+- test: cosim_dual_issue
+  desc: "Program-order lockstep for EH2 dual-issue retire traces"
+  config: eh2_cosim
+  test_srcs: tests/asm/cosim_dual_issue.S
+  iterations: 1
+
+- test: cosim_bitmanip
+  desc: "Zba/Zbb instruction lockstep (sh1add/andn/clz/max etc)"
+  config: eh2_cosim
+  test_srcs: tests/asm/cosim_bitmanip.S
+  iterations: 1
+
+- test: cosim_exception_compare
+  desc: "Exception mcause/mepc comparison — ECALL/illegal/misaligned (issue 51)"
+  config: eh2_cosim
+  test_srcs: tests/asm/cosim_exception_compare.S
+  sim_opts: "+max_cycles=500000 +timeout_ns=50000000"
+  iterations: 1
+
+- test: cosim_atomic_basic
+  desc: "Atomic LR/SC + AMO* lockstep cosim proof (issue 52)"
+  config: eh2_cosim
+  test_srcs: tests/asm/cosim_atomic_basic.S
+  sim_opts: "+max_cycles=500000 +timeout_ns=50000000"
+  iterations: 1

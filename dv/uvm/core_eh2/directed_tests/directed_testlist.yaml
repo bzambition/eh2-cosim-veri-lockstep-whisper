@@ -1,0 +1,303 @@
+# SPDX-License-Identifier: Apache-2.0
+# EH2 directed tests, modeled after Ibex's directed_tests/directed_testlist.yaml.
+
+- config: eh2_directed
+  rtl_test: core_eh2_base_test
+  timeout_s: 300
+  gcc_opts: "-O2 -g -static -nostdlib -nostartfiles"
+  ld_script: tests/asm/cosim_link.ld
+  includes: tests/asm
+
+- config: eh2_directed_pic
+  rtl_test: core_eh2_pic_test
+  timeout_s: 300
+  gcc_opts: "-O2 -g -static -nostdlib -nostartfiles"
+  ld_script: tests/asm/cosim_link.ld
+  includes: tests/asm
+
+- config: eh2_directed_fetch_toggle
+  rtl_test: core_eh2_fetch_toggle_test
+  timeout_s: 300
+  gcc_opts: "-O2 -g -static -nostdlib -nostartfiles"
+  ld_script: tests/asm/cosim_link.ld
+  includes: tests/asm
+
+- test: directed_smoke
+  desc: "Mailbox smoke test running through the directed-test pipeline"
+  config: eh2_directed
+  test_srcs: tests/asm/cosim_smoke.S
+  iterations: 1
+
+- test: directed_alu
+  desc: "Deterministic ALU directed test"
+  config: eh2_directed
+  test_srcs: tests/asm/cosim_alu.S
+  iterations: 1
+
+- test: directed_load_store
+  desc: "Deterministic load/store directed test"
+  config: eh2_directed
+  test_srcs: tests/asm/cosim_load_store.S
+  iterations: 1
+
+- test: directed_irq_basic
+  desc: "Basic software interrupt trigger and trap handler"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_irq_basic.S
+  iterations: 1
+
+- test: directed_pmp_smoke
+  desc: "PMP region config and access fault trap"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_smoke.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_csr_warl
+  desc: "EH2 custom CSR WARL read-back smoke"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_csr_warl.S
+  cosim: disabled
+  iterations: 1
+
+- test: directed_double_issue_hazard
+  desc: "Dual-issue RAW/WAR/WAW hazard ordering"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_double_issue_hazard.S
+  iterations: 1
+
+- test: directed_nb_load_chain
+  desc: "Three consecutive NB-loads + dependent branch (RISK-5)"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_nb_load_chain.S
+  iterations: 1
+
+- test: directed_axi4_error_inject
+  desc: "AXI4 SLVERR/DECERR injection triggers load access fault"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_axi4_error_inject.S
+  cosim: disabled
+  sim_opts: '+enable_axi4_error_inject=1 +axi4_error_pct=100'
+  iterations: 1
+
+- test: directed_illegal_instr
+  desc: "Illegal instruction exception handling"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_illegal_instr.S
+  iterations: 1
+
+- test: directed_nested_irq
+  desc: "Nested ECALL trap handler"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_nested_irq.S
+  iterations: 1
+
+- test: directed_debug_basic
+  desc: "EBREAK breakpoint exception handling"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_debug_basic.S
+  iterations: 1
+
+- test: directed_pmp_regions
+  desc: "Multi-region PMP configuration and access fault"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_regions.S
+  cosim: enabled
+  iterations: 1
+
+# ─── New PMP directed tests (PROMPT-I ───
+
+- test: directed_pmp_tor_basic
+  desc: "PMP TOR mode basic access + out-of-bounds"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_tor_basic.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_napot_basic
+  desc: "PMP NAPOT mode at 4B/16B/256B/4KB sizes"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_napot_basic.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_na4_basic
+  desc: "PMP NA4 4-byte naturally-aligned region"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_na4_basic.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_off_basic
+  desc: "PMP OFF mode region invalidation"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_off_basic.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_lock
+  desc: "PMP L-bit lock and reconfiguration attempt"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_lock.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_priority
+  desc: "PMP multi-region priority (lowest index wins)"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_priority.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_iside
+  desc: "PMP enforcement on instruction-side fetches"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_iside.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_dside_load
+  desc: "PMP enforcement on data-side loads"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_dside_load.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_dside_store
+  desc: "PMP enforcement on data-side stores"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_dside_store.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_xwr_combinations
+  desc: "PMP R/W/X 8 permission combinations"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_xwr_combinations.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_addr_alignment
+  desc: "PMP address LSB alignment and granularity"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_addr_alignment.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_cross_region
+  desc: "PMP load/store across region boundaries"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_cross_region.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_csr_warl
+  desc: "PMP pmpcfg/pmpaddr WARL behavior on illegal writes"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_csr_warl.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_no_match_default
+  desc: "PMP no-match default deny (M-mode exception)"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_no_match_default.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_after_trap
+  desc: "PMP mtval/mcause content after access violation"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_after_trap.S
+  cosim: enabled
+  iterations: 1
+
+- test: directed_pmp_mscause_decode
+  desc: "PMP EH2 mscause secondary cause decode after fault"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_pmp_mscause_decode.S
+  cosim: enabled
+  iterations: 1
+
+# Coverage pump directed tests (Task-D)
+
+- test: directed_pic_state_walk
+  desc: "PIC/trap claim-complete state stimulus with IRQ sideband"
+  config: eh2_directed_pic
+  test_srcs: tests/asm/directed_pic_state_walk.S
+  sim_opts: '+enable_irq_seq=1 +enable_irq_single_seq=1 +max_interval=20'
+  cosim: disabled
+  iterations: 1
+
+- test: directed_dbg_dret_walk
+  desc: "Debug halt/resume and breakpoint trap stimulus"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_dbg_dret_walk.S
+  sim_opts: '+enable_debug_seq=1 +enable_debug_single=1 +max_interval=20'
+  cosim: disabled
+  iterations: 1
+
+- test: directed_dma_burst
+  desc: "Dense aligned memory burst to exercise DMA/AXI memory paths"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_dma_burst.S
+  cosim: disabled
+  iterations: 1
+
+- test: directed_ifu_bp_btb
+  desc: "Repeated branch and call targets for IFU BP/BTB coverage"
+  config: eh2_directed_fetch_toggle
+  test_srcs: tests/asm/directed_ifu_bp_btb.S
+  sim_opts: '+enable_fetch_toggle=1'
+  cosim: disabled
+  iterations: 1
+
+- test: directed_lsu_stbuf_full
+  desc: "Back-to-back stores and fence to pressure LSU store buffer"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_lsu_stbuf_full.S
+  cosim: disabled
+  iterations: 1
+
+- test: directed_iccm_eccerror
+  desc: "Aligned ICCM fetch loop with memory-error injection window"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_iccm_eccerror.S
+  sim_opts: '+enable_mem_error=1'
+  cosim: disabled
+  iterations: 1
+
+- test: directed_toggle_axi4_data_walk
+  desc: "AXI4 data bus toggle pump (R3-B)"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_toggle_axi4_data_walk.S
+  cosim: disabled
+  iterations: 1
+
+- test: directed_toggle_csr_walk
+  desc: "CSR toggle pump (R3-B)"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_toggle_csr_walk.S
+  cosim: disabled
+  iterations: 1
+
+- test: directed_toggle_rf_walk
+  desc: "Integer register file toggle pump (R3-B)"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_toggle_rf_walk.S
+  cosim: disabled
+  iterations: 1
+
+- test: directed_toggle_dccm_walk
+  desc: "DCCM byte/halfword/word toggle pump (R3-B)"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_toggle_dccm_walk.S
+  cosim: disabled
+  iterations: 1
+
+- test: directed_toggle_mul_div_walk
+  desc: "EXU multiply/divide datapath toggle pump (R3-B)"
+  config: eh2_directed
+  test_srcs: tests/asm/directed_toggle_mul_div_walk.S
+  cosim: disabled
+  iterations: 1

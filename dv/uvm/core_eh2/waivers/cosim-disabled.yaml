@@ -1,0 +1,108 @@
+# EH2 Cosim-Disabled Waivers
+#
+# Each waiver corresponds to a test with `cosim: disabled` in the testlist
+# (riscv_dv_extension/testlist.yaml). Only waived tests pass the
+# --fail-on-cosim-disabled gate.
+#
+# Schema (per entry):
+#   test:            test name (must match testlist exactly)
+#   reason:          technical explanation of why cosim cannot run
+#   tracking_issue:  reference to issue tracker or ADR
+#   expiry_date:     YYYY-MM-DD — after this date the waiver is invalid
+#
+# cosim_reason fields in testlist.yaml are NOT waivers — only this file confers
+# formal waiver status. The gate is enforced by signoff.py.
+
+# ── CSR-directed tests ────────────────────────────────────────────────────────
+- test: riscv_csr_test
+  reason: >
+    Directed CSR read/write test exercises EH2-specific custom CSRs (mrac,
+    mcgc, mfdc, meivt, etc.) that have WARL/U behaviours not implemented in
+    Spike. Spike's CSR model does not emulate the full EH2 custom CSR space,
+    leading to CSR value mismatches that cascade into GPR mismatches on CSR
+    readback. The test also triggers presync/postsync side effects that Spike
+    does not model.
+  tracking_issue: "ADR-0006 — CSR WARL fixups in spike_cosim.cc; EH2 custom CSRs"
+  expiry_date: 2026-07-31
+
+- test: riscv_csr_hazard_test
+  reason: >
+    CSR pipeline hazard test exercises scoreboard bypass, CSR write->read
+    forwarding, and CSR->GPR data hazards through EH2's specific pipeline skid
+    buffer. Spike models CSRs at the ISA level without microarchitectural
+    pipeline timing — consecutive CSR write/read pairs produce matching
+    architectural results but Spike never stalls. The directed hazard stream
+    deliberately triggers pipeline corner cases that Spike's in-order execution
+    model handles without stalling, making instruction-by-instruction
+    comparison impossible.
+  tracking_issue: "ADRs: CSR pipelining — Spike has no microarchitectural pipeline model"
+  expiry_date: 2026-12-31
+
+# ── Hardware integrity / fault-injection tests ────────────────────────────────
+# These tests inject hardware faults (ECC/parity errors) using RTL force
+# statements. Spike is an ISA-level simulator with no concept of ECC, parity,
+# or hardware fault injection. Cosim comparison is fundamentally impossible.
+
+- test: riscv_pc_intg_test
+  reason: >
+    PC integrity fault injection — injects parity errors on the program counter
+    bus using RTL force statements. Triggers EH2-specific rfpcintg exception
+    with custom mcause encoding. Spike has no PC integrity error model.
+  tracking_issue: "Issue 61 — EH2 hardware integrity paths not modelable in Spike"
+  expiry_date: 2026-12-31
+
+- test: riscv_rf_intg_test
+  reason: >
+    Register file integrity fault injection — injects ECC/parity errors into
+    GPR register file banks. Spike's GPR model is a simple flat array with no
+    error detection or recovery paths.
+  tracking_issue: "Issue 61 — EH2 hardware integrity paths not modelable in Spike"
+  expiry_date: 2026-12-31
+
+- test: riscv_rf_addr_intg_test
+  reason: >
+    Register file address integrity fault injection — injects faults on GPR
+    read/write address lines exercising the RF address ECC/parity check logic.
+    Spike uses direct array indexing with no address-level error injection hooks.
+  tracking_issue: "Issue 61 — EH2 hardware integrity paths not modelable in Spike"
+  expiry_date: 2026-12-31
+
+- test: riscv_ram_intg_test
+  reason: >
+    DCCM/ICCM RAM ECC/parity fault injection — force statements at SRAM
+    interfaces inject single/double-bit errors. Spike's mem_t is a flat
+    byte-addressable model with no ECC logic, error status reporting, or
+    EH2 error CSRs (micect, miccmect, mdccmect).
+  tracking_issue: "Issue 61 — EH2 hardware integrity paths not modelable in Spike"
+  expiry_date: 2026-12-31
+
+- test: riscv_icache_intg_test
+  reason: >
+    ICache tag/data integrity fault injection — injects parity errors into
+    I$ tag and data RAM arrays. Spike has no instruction cache model; it
+    fetches via backdoor_read_mem from a flat memory. Cache tag parity and
+    line invalidation are EH2-specific microarchitectural features.
+  tracking_issue: "Issue 61 — EH2 hardware integrity paths not modelable in Spike"
+  expiry_date: 2026-12-31
+
+- test: riscv_mem_intg_error_test
+  reason: >
+    Generic memory integrity error injection — combines DCCM, ICCM, and bus-level
+    integrity faults. Exercises the EH2 error reporting chain: detection ->
+    micect counter -> trap with mscause -> mdeau address capture. Spike lacks
+    all of these error-reporting CSRs and the error injection hooks.
+  tracking_issue: "Issue 61 — EH2 hardware integrity paths not modelable in Spike"
+  expiry_date: 2026-12-31
+
+# ── AXI bus error injection ───────────────────────────────────────────────────
+- test: riscv_mem_error_test
+  reason: >
+    Memory bus error injection test drives AXI SLVERR/DECERR responses on the
+    LSU AXI4 interface using the testbench BFM. The DUT raises precise/imprecise
+    bus error exceptions with EH2-specific error handling (lsu_error_pkt,
+    mscause encoding, mdeau address latch, micect counter increment). Spike's
+    mmio_load/mmio_store CAN return bus errors, but the timing-sensitive error
+    injection in this directed test does not synchronize cleanly with Spike's
+    step-by-step execution model. The error reporting CSRs also differ.
+  tracking_issue: "Issue 61 — AXI error injection timing with Spike"
+  expiry_date: 2026-12-31

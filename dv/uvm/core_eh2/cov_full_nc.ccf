@@ -1,0 +1,86 @@
+// EH2 NC/Incisive Coverage Configuration File (CCF)
+// 对齐 lowRISC Ibex / OpenTitan 工业实现：
+//   - /home/host/ibex/vendor/lowrisc_ip/dv/tools/xcelium/common.ccf
+//   - /home/host/ibex/vendor/lowrisc_ip/dv/tools/xcelium/cover.ccf
+// 这两个文件是 OpenTitan 项目维护的 Xcelium 工业基线（注释中提到 Xcelium 自带的
+// ${XCELIUM_HOME}/tools/icc/include/all_coverage.ccf）。我们将其工业精髓移植到
+// NC/Incisive 152 这套较老但仍工业级的工具上（Incisive 是 Xcelium 的前身，
+// 大部分 CCF 命令完全相同）。
+//
+// Used via:  irun -covfile dv/uvm/core_eh2/cov_full_nc.ccf
+//
+// 关键点 — 这些是 NC 默认 disabled 但工业 sign-off 必须启用的：
+//   set_assign_scoring    : continuous assign 计入 block coverage
+//   set_branch_scoring    : branch coverage 启用（与 VCS -cm branch 对齐）
+//   set_statement_scoring : statement coverage 启用
+//   set_toggle_portsonly  : toggle 仅看 module port（与 VCS -cm_tgl portsonly 对齐）
+//   set_expr_coverable_*  : expression 完整 instrument（与 VCS -cm cond 对齐）
+
+// ===========================================================================
+// 1) Reset metric defaults — explicit selection only
+// ===========================================================================
+deselect_coverage -all
+deselect_coverage -covergroup
+
+// ===========================================================================
+// 2) 与 VCS -cm cond 对齐：完整 expression 覆盖（默认 NC 范围窄）
+// ===========================================================================
+set_expr_coverable_operators -all -event_or
+set_expr_coverable_statements -procassign -event_control -misc
+// NOTE: Xcelium 工业基线还启用 `set_expr_scoring -vlog_short_circuit`，
+//       但 NC 152 (Incisive) 不支持 -vlog_short_circuit 选项；
+//       NC 152 默认 expression 评分模式已为 SOP（与 Xcelium 默认一致）。
+
+// ===========================================================================
+// 3) 与 VCS -cm branch 对齐：启用 branch coverage（NC 默认 OFF）
+// ===========================================================================
+set_branch_scoring
+
+// ===========================================================================
+// 4) 与 VCS -cm line + continuous assign 对齐：启用 statement / continuous
+//    assignment scoring（两者 NC 默认 OFF）
+// ===========================================================================
+set_statement_scoring
+set_assign_scoring
+
+// ===========================================================================
+// 5) 启用 lib cell scoring（与 OpenTitan 工业基线一致）
+// ===========================================================================
+set_libcell_scoring
+
+// ===========================================================================
+// 6) Toggle scoring — SV 类型 + 仅 port + X 翻转计入
+// ===========================================================================
+// NC 152 支持的 SV 类型 toggle 评分（enum / mda）
+// NOTE: Xcelium 工业基线还启用 -sv_struct_with_enum / -sv_modport / -sv_generate /
+//       -sv_packed_union，但 NC 152 不支持这些较新参数。NC 仅评 enum + mda。
+set_toggle_scoring -sv_enum -sv_mda 16 -sv_mda_of_struct
+
+// 仅 port toggle（与 VCS -cm_tgl portsonly 对齐，避免内部组合 net 拖低数字）
+set_toggle_portsonly
+
+// X → 0/1 翻转也算（OpenTitan 工业实践）
+set_toggle_includex
+
+// ===========================================================================
+// 7) DUT 子树作用域：选择 RTL；排除 testbench stub
+// ===========================================================================
+
+// 真实 DUT 子树（"..." 表示子树）：5 个 metric 全启用
+select_coverage -block -expr -toggle -fsm -inst core_eh2_tb_top.dut...
+
+// 绑定的验证 interface — observe DUT pins
+select_coverage -block -expr -toggle -inst core_eh2_tb_top.u_fcov_if...
+select_coverage -block -expr -toggle -inst core_eh2_tb_top.u_rvfi_converter...
+
+// covergroup 用 -module 选择（CCF 规则：covergroup 不接受 -inst）
+select_coverage -covergroup -module eh2_fcov_if
+select_coverage -covergroup -module eh2_pmp_fcov_if
+
+// DUT 周边的 memory model — 反映 DUT 总线流量完整性
+select_coverage -block -expr -toggle -fsm -inst core_eh2_tb_top.lsu_mem...
+select_coverage -block -expr -toggle -fsm -inst core_eh2_tb_top.ifu_mem...
+select_coverage -block -expr -toggle -fsm -inst core_eh2_tb_top.sb_mem...
+
+// 显式排除 testbench 桥接 stub，避免拉高 code coverage
+deselect_coverage -block -expr -toggle -inst core_eh2_tb_top.tb_intf...

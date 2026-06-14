@@ -1,0 +1,205 @@
+# SPDX-License-Identifier: Apache-2.0
+# EH2 RTL Simulation Configuration
+#
+# Defines compile and simulation commands for each simulator.
+# Uses template variables: <tb_dir>, <build_dir>, <seed>, <binary>,
+# <rtl_test>, <sim_opts>, <cov_opts>, <wave_opts>
+
+# ---------------------------------------------------------------------------
+# VCS
+# ---------------------------------------------------------------------------
+vcs:
+  compile:
+    cmd: >
+      vcs -full64 -sverilog -ntb_opts uvm-1.2
+      -f <tb_dir>/eh2_rtl.f
+      -f <tb_dir>/eh2_shared.f
+      -f <tb_dir>/eh2_tb.f
+      -top core_eh2_tb_top
+      -Mdir=<build_dir>/csrc
+      -o <build_dir>/simv
+      +define+UVM_NO_DEPRECATED
+      +define+UVM_VERDI_COMPWAVE
+      -debug_access+all
+      -kdb
+      +incdir+<tb_dir>/common/axi4_agent
+      +incdir+<tb_dir>/common/trace_agent
+      +incdir+<tb_dir>/common/irq_agent
+      +incdir+<tb_dir>/common/jtag_agent
+      +incdir+<tb_dir>/common/cosim_agent
+      -l <build_dir>/compile.log
+    cov_opts: "-cm line+tgl+assert+fsm+branch -cm_dir <build_dir>/cov -cm_hier dv/uvm/core_eh2/cover.cfg -cm_tgl portsonly -cm_tgl structarr -cm_report noinitial -cm_seqnoconst -cm_fsmcfg dv/uvm/core_eh2/cov_fsm.cfg -cm_fsmresetfilter dv/uvm/core_eh2/cov_fsm_reset_filter.cfg -cm_fsmopt report2StateFsms+allowTmp+reportvalues+reportWait+upto64"
+    wave_opts: "-debug_access+all -kdb +define+UVM_VERDI_COMPWAVE"
+    cosim_opts: >-
+      -f <tb_dir>/eh2_dv_cosim_dpi.f
+      -LDFLAGS '<ISS_LDFLAGS>'
+      -CFLAGS '<ISS_CFLAGS> <EXTRA_COSIM_CFLAGS>'
+      -CFLAGS '-I<tb_dir>/../../cosim'
+      <ISS_LIBS>
+      -lstdc++
+
+  sim:
+    cmd: >
+      <build_dir>/simv
+      +UVM_TESTNAME=<rtl_test>
+      +bin=<binary>
+      +seed=<seed>
+      +timeout_ns=<timeout>
+      <sim_opts>
+      -l <out_dir>/sim_<test>_<seed>.log
+      +UVM_VERBOSITY=<uvm_verbosity>
+    cov_opts: "+enable_eh2_fcov=1 -cm line+tgl+assert+fsm+branch -cm_dir <build_dir>/cov -cm_name <test>_<seed>"
+    wave_opts: >-
+      +UVM_VERDI_TRACE=UVM_AWARE+RAL+HIER+COMPWAVE
+      +UVM_TR_RECORD
+      -ucli
+      -do <tb_dir>/vcs.tcl
+
+# ---------------------------------------------------------------------------
+# Xcelium
+# ---------------------------------------------------------------------------
+xlm:
+  compile:
+    cmd: >
+      xrun -uvm -sv
+      -f <tb_dir>/eh2_rtl.f
+      -f <tb_dir>/eh2_shared.f
+      -f <tb_dir>/eh2_tb.f
+      -top core_eh2_tb_top
+      +incdir+<tb_dir>/common/axi4_agent
+      +incdir+<tb_dir>/common/trace_agent
+      +incdir+<tb_dir>/common/irq_agent
+      +incdir+<tb_dir>/common/jtag_agent
+      +incdir+<tb_dir>/common/cosim_agent
+      -l <build_dir>/compile.log
+    cov_opts: "-covoverwrite -covfile <tb_dir>/cov.ccf"
+    wave_opts: "-access +rwc -linedebug"
+    cosim_opts: >-
+      -f <tb_dir>/eh2_dv_cosim_dpi.f
+      -I<tb_dir>/../../cosim
+      <ISS_LIBS>
+      <ISS_CFLAGS>
+      <EXTRA_COSIM_CFLAGS>
+      <ISS_LDFLAGS>
+      -lstdc++
+
+  sim:
+    cmd: >
+      xrun
+      +UVM_TESTNAME=<rtl_test>
+      +bin=<binary>
+      +seed=<seed>
+      +timeout_ns=<timeout>
+      <sim_opts>
+      -l <out_dir>/sim_<test>_<seed>.log
+      +UVM_VERBOSITY=<uvm_verbosity>
+    cov_opts: "+enable_eh2_fcov=1 -covoverwrite -covfile <tb_dir>/cov.ccf"
+    wave_opts: >-
+      -input @"database -open <out_dir>/waves -shm -default"
+      -input @"probe -create core_eh2_tb_top -all -memories -depth all"
+      -input @"run"
+
+# ---------------------------------------------------------------------------
+# NC (Cadence Incisive irun, 15.20.x) — DEBUG-ONLY MODE
+#
+# NC is reserved for single-test waveform debugging only:
+#     make smoke   SIMULATOR=nc WAVES=1
+#     make regress SIMULATOR=nc TEST=<name> WAVES=1
+#
+# NC does NOT participate in:
+#   - sign-off (make signoff / make demo)
+#   - coverage collection (cov_opts is intentionally empty below)
+# All coverage runs through the VCS path. See cover.cfg for the Ibex-aligned
+# VCS coverage configuration.
+#
+# Single-step model: each `sim.cmd` invocation runs the full irun pipeline
+# (parse + elab + sim) but irun's incremental compile reuses INCA_libs from
+# prior runs, so per-test elaboration is sub-second after the first warm-up.
+# ---------------------------------------------------------------------------
+nc:
+  compile:
+    cmd: >
+      irun -64bit -uvmhome <nc_uvm_home>
+      -sv -assert -vlog_ext +.vh
+      +define+UVM_NO_DEPRECATED +define+GTLSIM
+      <eh2_root>/rtl/snapshots/default/common_defines.vh
+      +incdir+<eh2_root>/rtl/snapshots/default
+      -f <tb_dir>/eh2_rtl.f
+      -f <tb_dir>/eh2_shared.f
+      -f <tb_dir>/eh2_tb.f
+      -top core_eh2_tb_top
+      -elaborate
+      -nclibdirname <build_dir>/INCA_libs
+      -access +rwc -timescale 1ns/1ps -errormax 500
+      +incdir+<tb_dir>/common/axi4_agent
+      +incdir+<tb_dir>/common/trace_agent
+      +incdir+<tb_dir>/common/irq_agent
+      +incdir+<tb_dir>/common/jtag_agent
+      +incdir+<tb_dir>/common/cosim_agent
+      +incdir+<eh2_root>/dv/cosim
+      -sv_lib <eh2_root>/build/libcosim.so
+      -l <build_dir>/compile.log
+    cov_opts: "-coverage all -covworkdir <build_dir>/cov_work -covoverwrite -covdut core_eh2_tb_top -covfile <tb_dir>/cov_full_nc.ccf"
+    wave_opts: "-linedebug"
+    cosim_opts: ""
+
+  sim:
+    cmd: >
+      irun -64bit -uvmhome <nc_uvm_home>
+      -sv -assert -vlog_ext +.vh
+      +define+UVM_NO_DEPRECATED +define+GTLSIM
+      <eh2_root>/rtl/snapshots/default/common_defines.vh
+      +incdir+<eh2_root>/rtl/snapshots/default
+      +incdir+<tb_dir>/common/axi4_agent
+      +incdir+<tb_dir>/common/trace_agent
+      +incdir+<tb_dir>/common/irq_agent
+      +incdir+<tb_dir>/common/jtag_agent
+      +incdir+<tb_dir>/common/cosim_agent
+      +incdir+<eh2_root>/dv/cosim
+      -f <tb_dir>/eh2_rtl.f -f <tb_dir>/eh2_shared.f -f <tb_dir>/eh2_tb.f
+      -top core_eh2_tb_top -nclibdirname <build_dir>/INCA_libs
+      -access +rwc -timescale 1ns/1ps -errormax 500
+      -sv_lib <eh2_root>/build/libcosim.so
+      +UVM_TESTNAME=<rtl_test>
+      +bin=<binary>
+      +seed=<seed>
+      +timeout_ns=<timeout>
+      <sim_opts>
+      -l <out_dir>/sim_<test>_<seed>.log
+      +UVM_VERBOSITY=<uvm_verbosity>
+    cov_opts: "+enable_eh2_fcov=1 -coverage all -covworkdir <build_dir>/cov_work -covtest <test>_<seed> -covoverwrite -covfile <tb_dir>/cov_full_nc.ccf"
+    wave_opts: "-input <tb_dir>/nc_waves.tcl"
+
+# ---------------------------------------------------------------------------
+# Questa
+# ---------------------------------------------------------------------------
+questa:
+  compile:
+    cmd: >
+      vlib <build_dir>/work && vlog -work <build_dir>/work -sv
+      -f <tb_dir>/eh2_rtl.f
+      -f <tb_dir>/eh2_shared.f
+      -f <tb_dir>/eh2_tb.f
+      -top core_eh2_tb_top
+      +incdir+<tb_dir>/common/axi4_agent
+      +incdir+<tb_dir>/common/trace_agent
+      +incdir+<tb_dir>/common/irq_agent
+      +incdir+<tb_dir>/common/jtag_agent
+      +incdir+<tb_dir>/common/cosim_agent
+      -l <build_dir>/compile.log
+    cov_opts: ""
+    cosim_opts: >-
+      -f <tb_dir>/eh2_dv_cosim_dpi.f
+
+  sim:
+    cmd: >
+      vsim -c <build_dir>/work.core_eh2_tb_top
+      -do "run -all"
+      +UVM_TESTNAME=<rtl_test>
+      +bin=<binary>
+      +seed=<seed>
+      +timeout_ns=<timeout>
+      <sim_opts>
+      -l <out_dir>/sim_<test>_<seed>.log
+      +UVM_VERBOSITY=<uvm_verbosity>
+    cov_opts: "+enable_eh2_fcov=1"

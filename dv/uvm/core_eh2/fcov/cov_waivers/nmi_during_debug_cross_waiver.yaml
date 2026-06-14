@@ -1,0 +1,23 @@
+# Waiver: NMI during debug mode cross
+#
+# Covergroup:  interrupt_cg
+# Cross:       cp_int_in_debug (cp_int_source x dec_tlu_debug_mode)
+# Bins:        nmi x in_debug
+
+waiver:
+  name: "NMI is architecturally blocked during debug mode"
+  coverage_point: "interrupt_cg.cp_int_in_debug"
+  reason: >
+    The RISC-V debug specification (Section 4.1) states that NMIs
+    are not taken while the hart is in debug mode.  The EH2 debug
+    unit masks NMI delivery when dec_tlu_debug_mode is asserted:
+    the interrupt arbitration logic in the TLU gates take_nmi with
+    !dec_tlu_debug_mode.  Consequently, the cross of nmi x in_debug
+    can never fire in a compliant implementation.  This is not a
+    coverage gap but a reflection of the architectural constraint.
+    Any attempt to force this combination via backdoor CSR writes
+    would produce undefined behavior, not a valid coverage sample.
+  author: "eh2-verification"
+  date: "2026-05-05"
+  ticket: ""
+  status: "active"

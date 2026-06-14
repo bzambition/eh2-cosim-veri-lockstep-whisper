@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+
+  Auxiliary Code Refinement for EH2
+
+  This file waives coverage for code related to testbench infrastructure
+  (memory loading, coverage collection, debug stimulus) that is not part
+  of the DUT's functional behavior.
+
+  Usage: loaded by coverage_waivers_xlm.tcl via:
+    load -refinement "waivers/aux_code.vRefine"
+
+  Categories:
+    - Memory load/initialization code in RTL (readmemh)
+    - AXI4 slave memory model behavioral code
+    - Debug/JTAG stimulus generation code
+-->
+<refinement-file-root>
+  <information comment-version="1" creator="eh2-dv" csCheck="true"
+    save-ref-method="seq" tool-version="Cadence IMC">
+  </information>
+  <rules>
+    <!--
+      Template for adding auxiliary code waivers:
+
+      <rule ccType="type" domain="icc"
+        entityName="<module_name>/<block_id>" entityType="block"
+        name="exclude" packageName="worklib"
+        line="<line_number>" text="<code_text>"
+        reviewer="<reviewer_name>" user="1">
+      </rule>
+    -->
+  </rules>
+</refinement-file-root>

@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# EH2 RISC-V Compliance Target Makefile (issue 57)
+#
+# Modeled after riscv-compliance/riscv-target/ibex/.
+# Requires: riscv32-unknown-elf-gcc, VCS (for simulation).
+#
+# Usage:
+#   export TARGET_SIM=/path/to/eh2_compliance_simv
+#   export RISCV_PREFIX=riscv32-unknown-elf-
+#   export RISCV_TARGET=eh2
+#   export RISCV_DEVICE=rv32imac
+#   make RISCV_ISA=rv32i
+#   make RISCV_ISA=rv32imc
+
+RISCV_PREFIX   ?= riscv32-unknown-elf-
+RISCV_GCC      ?= $(RISCV_PREFIX)gcc
+RISCV_OBJCOPY  ?= $(RISCV_PREFIX)objcopy
+RISCV_OBJDUMP  ?= $(RISCV_PREFIX)objdump
+
+EH2_ROOT       ?= $(realpath $(CURDIR)/../../..)
+COMPLIANCE_DIR ?= $(EH2_ROOT)/dv/uvm/riscv_compliance
+
+TARGET_SIM     ?= $(EH2_ROOT)/build/simv
+
+# Device-specific linker script and startup
+RISCV_DEVICE   ?= rv32imac
+DEVICE_DIR     ?= $(COMPLIANCE_DIR)/device/$(RISCV_DEVICE)
+
+# Compile a compliance test program to .hex
+%.elf: %.c $(DEVICE_DIR)/startup.S $(DEVICE_DIR)/link.ld
+	$(RISCV_GCC) -march=$(RISCV_ISA) -mabi=ilp32 -nostdlib -nostartfiles \
+		-T$(DEVICE_DIR)/link.ld -I$(DEVICE_DIR) \
+		$(DEVICE_DIR)/startup.S $< -o $@
+
+%.hex: %.elf
+	$(RISCV_OBJCOPY) -O verilog $< $@
+
+%.dump: %.elf
+	$(RISCV_OBJDUMP) -D $< > $@
+
+# Run a single compliance test
+RUN_TARGET = $(TARGET_SIM) +bin=$(<:.elf=.hex) +tohost_addr=0xD0580000
+
+COMPILE_TARGET = $(RISCV_GCC) -march=$(RISCV_ISA) -mabi=ilp32 \
+	-nostdlib -nostartfiles -T$(DEVICE_DIR)/link.ld \
+	-I$(DEVICE_DIR) $(DEVICE_DIR)/startup.S
+
+# Allow overriding via environment
+.PHONY: compliance clean
+
+compliance:
+	@echo "EH2 RISC-V Compliance Target"
+	@echo "  TARGET_SIM = $(TARGET_SIM)"
+	@echo "  DEVICE_DIR = $(DEVICE_DIR)"
+	@echo "  RISCV_ISA  = $(RISCV_ISA)"
+
+clean:
+	rm -f *.elf *.hex *.dump *.log

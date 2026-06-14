@@ -1,0 +1,10 @@
+prefix=@prefix@
+exec_prefix=@prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: riscv-fdt
+Description: RISC-V Flat Device Tree Manipulation
+Version: git
+Libs: -Wl,-rpath,${libdir} -L${libdir} -lfdt
+Cflags: -I${includedir}

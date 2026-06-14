@@ -1,0 +1,32 @@
+# EH2 RISC-V Compliance Known Failures
+# Each entry requires: test, reason, tracking_issue, expiry_date
+
+- test: "I-MISALIGN_LDST-01"
+  type: "compliance_rv32i"
+  reason: >
+    EH2 treats unsupported misaligned load/store as illegal instruction
+    (mcause=2) rather than separate load/store misaligned exceptions
+    (mcause=4/6). The reference model expects rv32i-compliant mcause
+    values. This is an EH2 architectural simplification.
+  tracking_issue: "EH2-ARCH-001"
+  expiry_date: "2026-12-31"
+
+- test: "I-MISALIGN_JMP-01"
+  type: "compliance_rv32i"
+  reason: >
+    EH2 does not support misaligned instruction fetch. A misaligned
+    jump target causes an infinite exception loop (mcause=0 re-fetches
+    same misaligned address). Test times out after 500K cycles.
+    Hardware limitation of EH2's fetch unit.
+  tracking_issue: "EH2-ARCH-002"
+  expiry_date: "2026-12-31"
+
+- test: "I-FENCE.I-01"
+  type: "compliance_rv32Zifencei"
+  reason: >
+    EH2 fence.i does not fully synchronize I$ with D$ stores.
+    Self-modifying code test stores new instructions, executes fence.i,
+    but I$ returns stale (zero) data. Signature expected
+    0x00000012/0x00000042 but got 0x00000000/0x00000000.
+  tracking_issue: "EH2-ARCH-003"
+  expiry_date: "2026-12-31"

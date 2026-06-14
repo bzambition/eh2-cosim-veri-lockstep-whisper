@@ -1,0 +1,487 @@
+# SPDX-License-Identifier: Apache-2.0
+# EH2 CSR Description for riscv-dv
+#
+# Describes CSR fields for riscv-dv's CSR test generation.
+# Format: each CSR has address, name, and field descriptions.
+# Fields use [msb:lsb] or [bit] notation with type (R/W, RO, WARL, WLRL).
+
+# ---------------------------------------------------------------------------
+# Standard M-mode CSRs
+# ---------------------------------------------------------------------------
+- csr: mstatus
+  address: 0x300
+  description: "Machine status register"
+  fields:
+    - field: [3:0]
+      name: mie
+      type: R/W
+      description: "Machine interrupt enable (only bit 0 used, others 0)"
+    - field: [7:4]
+      name: mpie
+      type: R/W
+      description: "Machine previous interrupt enable"
+    - field: [12:11]
+      name: mpp
+      type: RO
+      description: "Machine previous privilege (hardwired to 3)"
+
+- csr: misa
+  address: 0x301
+  description: "ISA and extensions"
+  fields:
+    - field: [31:30]
+      name: mxl
+      type: RO
+      description: "Machine XLEN (1 = 32-bit)"
+    - field: [25:0]
+      name: extensions
+      type: RO
+      description: "Supported extensions (I,M,A,C)"
+
+- csr: mie
+  address: 0x304
+  description: "Machine interrupt enable"
+  fields:
+    - field: [0]
+      name: msie
+      type: R/W
+      description: "Software interrupt enable"
+    - field: [1]
+      name: mtie
+      type: R/W
+      description: "Timer interrupt enable"
+    - field: [2]
+      name: meie
+      type: R/W
+      description: "External interrupt enable"
+    - field: [3]
+      name: mitie1
+      type: R/W
+      description: "Internal timer 1 enable"
+    - field: [4]
+      name: mitie0
+      type: R/W
+      description: "Internal timer 0 enable"
+    - field: [5]
+      name: mceie
+      type: R/W
+      description: "Correctable error interrupt enable"
+
+- csr: mtvec
+  address: 0x305
+  description: "Machine trap-handler base address"
+  fields:
+    - field: [31:2]
+      name: base
+      type: WARL
+      description: "Trap vector base address"
+    - field: [1:0]
+      name: mode
+      type: WARL
+      description: "Vector mode (0=direct, 1=vectored)"
+
+- csr: mcountinhibit
+  address: 0x320
+  description: "Counter inhibit register"
+  fields:
+    - field: [0]
+      name: cy
+      type: R/W
+      description: "Inhibit mcycle"
+    - field: [2]
+      name: ir
+      type: R/W
+      description: "Inhibit minstret"
+    - field: [6:3]
+      name: hpm3to6
+      type: R/W
+      description: "Inhibit mhpmc3-6"
+
+- csr: mscratch
+  address: 0x340
+  description: "Machine scratch register"
+  fields:
+    - field: [31:0]
+      name: mscratch
+      type: R/W
+
+- csr: mepc
+  address: 0x341
+  description: "Machine exception program counter"
+  fields:
+    - field: [31:1]
+      name: mepc
+      type: WARL
+      description: "Exception PC (bit 0 hardwired to 0)"
+    - field: [0]
+      name: mepc_0
+      type: RO
+      description: "Always 0"
+
+- csr: mcause
+  address: 0x342
+  description: "Machine trap cause"
+  fields:
+    - field: [31]
+      name: interrupt
+      type: R/W
+      description: "Interrupt flag"
+    - field: [4:0]
+      name: exception_code
+      type: R/W
+      description: "Exception code"
+
+- csr: mtval
+  address: 0x343
+  description: "Machine trap value"
+  fields:
+    - field: [31:0]
+      name: mtval
+      type: R/W
+
+- csr: mip
+  address: 0x344
+  description: "Machine interrupt pending"
+  fields:
+    - field: [0]
+      name: msip
+      type: RO
+      description: "Software interrupt pending"
+    - field: [1]
+      name: mtip
+      type: RO
+      description: "Timer interrupt pending"
+    - field: [2]
+      name: meip
+      type: RO
+      description: "External interrupt pending"
+    - field: [3]
+      name: mitip1
+      type: RO
+      description: "Internal timer 1 pending"
+    - field: [4]
+      name: mitip0
+      type: RO
+      description: "Internal timer 0 pending"
+    - field: [5]
+      name: mceip
+      type: RO
+      description: "Correctable error pending"
+
+# ---------------------------------------------------------------------------
+# Read-only ID CSRs
+# ---------------------------------------------------------------------------
+- csr: mvendorid
+  address: 0xF11
+  description: "Vendor ID"
+  fields:
+    - field: [31:0]
+      name: mvendorid
+      type: RO
+
+- csr: marchid
+  address: 0xF12
+  description: "Architecture ID"
+  fields:
+    - field: [31:0]
+      name: marchid
+      type: RO
+
+- csr: mimpid
+  address: 0xF13
+  description: "Implementation ID"
+  fields:
+    - field: [31:0]
+      name: mimpid
+      type: RO
+
+- csr: mhartid
+  address: 0xF14
+  description: "Hart ID"
+  fields:
+    - field: [31:0]
+      name: mhartid
+      type: RO
+
+# ---------------------------------------------------------------------------
+# Performance counters
+# ---------------------------------------------------------------------------
+- csr: mcycle
+  address: 0xB00
+  description: "Cycle counter low"
+  fields:
+    - field: [31:0]
+      name: mcycle
+      type: R/W
+
+- csr: mcycleh
+  address: 0xB80
+  description: "Cycle counter high"
+  fields:
+    - field: [31:0]
+      name: mcycleh
+      type: R/W
+
+- csr: minstret
+  address: 0xB02
+  description: "Instructions retired low"
+  fields:
+    - field: [31:0]
+      name: minstret
+      type: R/W
+
+- csr: minstreth
+  address: 0xB82
+  description: "Instructions retired high"
+  fields:
+    - field: [31:0]
+      name: minstreth
+      type: R/W
+
+# ---------------------------------------------------------------------------
+# Debug CSRs (only accessible in debug halt mode)
+# ---------------------------------------------------------------------------
+- csr: dcsr
+  address: 0x7B0
+  description: "Debug control and status"
+  fields:
+    - field: [31:28]
+      name: xdebugver
+      type: RO
+      description: "Debug spec version (4 = 0.13)"
+    - field: [15]
+      name: ebreakm
+      type: R/W
+      description: "EBREAK enters debug mode in M-mode"
+    - field: [11]
+      name: stepie
+      type: R/W
+      description: "Interrupts enabled during single step"
+    - field: [10]
+      name: stopcount
+      type: R/W
+      description: "Stop counters in debug mode"
+    - field: [8:6]
+      name: cause
+      type: RO
+      description: "Debug entry cause (4=step, 3=halt, 2=ebreak, 1=trigger)"
+    - field: [3]
+      name: nmip
+      type: RO
+      description: "NMI pending"
+    - field: [2]
+      name: step
+      type: R/W
+      description: "Single step mode"
+    - field: [1:0]
+      name: prv
+      type: RO
+      description: "Privilege mode (3 = M-mode, hardwired)"
+
+- csr: dpc
+  address: 0x7B1
+  description: "Debug PC"
+  fields:
+    - field: [31:0]
+      name: dpc
+      type: R/W
+
+# ---------------------------------------------------------------------------
+# Trigger CSRs
+# ---------------------------------------------------------------------------
+- csr: mtsel
+  address: 0x7A0
+  description: "Trigger select"
+  fields:
+    - field: [31:0]
+      name: mtsel
+      type: R/W
+
+- csr: mtdata1
+  address: 0x7A1
+  description: "Trigger data 1"
+  fields:
+    - field: [31:0]
+      name: mtdata1
+      type: R/W
+
+- csr: mtdata2
+  address: 0x7A2
+  description: "Trigger data 2"
+  fields:
+    - field: [31:0]
+      name: mtdata2
+      type: R/W
+
+# ---------------------------------------------------------------------------
+# WD/Microchip custom CSRs
+# ---------------------------------------------------------------------------
+- csr: mscause
+  address: 0x7FF
+  description: "Machine secondary exception cause"
+  fields:
+    - field: [31:0]
+      name: mscause
+      type: R/W
+
+- csr: mrac
+  address: 0x7C0
+  description: "Region access control"
+  fields:
+    - field: [31:0]
+      name: mrac
+      type: R/W
+
+- csr: mfdc
+  address: 0x7C9
+  description: "Feature disable control"
+  fields:
+    - field: [31:0]
+      name: mfdc
+      type: R/W
+
+- csr: mcgc
+  address: 0x7F8
+  description: "Clock gating control"
+  fields:
+    - field: [31:0]
+      name: mcgc
+      type: R/W
+
+- csr: mpmc
+  address: 0x7C6
+  description: "PMU/firmware halt control"
+  fields:
+    - field: [31:0]
+      name: mpmc
+      type: R0W1
+
+# ---------------------------------------------------------------------------
+# Internal timer CSRs
+# ---------------------------------------------------------------------------
+- csr: mitcnt0
+  address: 0x7D2
+  description: "Internal timer 0 counter"
+  fields:
+    - field: [31:0]
+      name: mitcnt0
+      type: R/W
+
+- csr: mitb0
+  address: 0x7D3
+  description: "Internal timer 0 bound"
+  fields:
+    - field: [31:0]
+      name: mitb0
+      type: R/W
+
+- csr: mitctl0
+  address: 0x7D4
+  description: "Internal timer 0 control"
+  fields:
+    - field: [31:0]
+      name: mitctl0
+      type: R/W
+
+- csr: mitcnt1
+  address: 0x7D5
+  description: "Internal timer 1 counter"
+  fields:
+    - field: [31:0]
+      name: mitcnt1
+      type: R/W
+
+- csr: mitb1
+  address: 0x7D6
+  description: "Internal timer 1 bound"
+  fields:
+    - field: [31:0]
+      name: mitb1
+      type: R/W
+
+- csr: mitctl1
+  address: 0x7D7
+  description: "Internal timer 1 control"
+  fields:
+    - field: [31:0]
+      name: mitctl1
+      type: R/W
+
+# ---------------------------------------------------------------------------
+# ECC/error CSRs
+# ---------------------------------------------------------------------------
+- csr: micect
+  address: 0x7F0
+  description: "ICache ECC error count threshold"
+  fields:
+    - field: [31:0]
+      name: micect
+      type: R/W
+
+- csr: miccmect
+  address: 0x7F1
+  description: "ICCM ECC error count threshold"
+  fields:
+    - field: [31:0]
+      name: miccmect
+      type: R/W
+
+- csr: mdccmect
+  address: 0x7F2
+  description: "DCCM ECC error count threshold"
+  fields:
+    - field: [31:0]
+      name: mdccmect
+      type: R/W
+
+# ---------------------------------------------------------------------------
+# PIC interrupt CSRs
+# ---------------------------------------------------------------------------
+- csr: meivt
+  address: 0xBC8
+  description: "External Interrupt Vector Table base"
+  fields:
+    - field: [31:10]
+      name: base
+      type: R/W
+      description: "Vector table base address"
+
+- csr: meihap
+  address: 0xFC8
+  description: "External Interrupt Handler Address and Priority"
+  fields:
+    - field: [31:0]
+      name: meihap
+      type: RO
+
+- csr: meipt
+  address: 0xBC9
+  description: "External Interrupt Priority Threshold"
+  fields:
+    - field: [3:0]
+      name: meipt
+      type: R/W
+
+- csr: meicpct
+  address: 0xBCA
+  description: "External Interrupt Claim and Priority Capture"
+  fields:
+    - field: [31:0]
+      name: meicpct
+      type: R/W
+
+- csr: meicurpl
+  address: 0xBCC
+  description: "External Interrupt Current Priority Level"
+  fields:
+    - field: [3:0]
+      name: meicurpl
+      type: R/W
+
+- csr: meicidpl
+  address: 0xBCB
+  description: "External Interrupt Claim ID Priority Level"
+  fields:
+    - field: [3:0]
+      name: meicidpl
+      type: R/W

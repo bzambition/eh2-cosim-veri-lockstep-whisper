@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+
+  Unreachable Code Refinement for EH2
+
+  This file documents code that is architecturally unreachable or cannot be
+  exercised by the UVM testbench. Each entry must include a reason comment.
+
+  Usage: loaded by coverage_waivers_xlm.tcl via:
+    load -refinement "waivers/unr.vRefine"
+
+  To add entries:
+    1. Identify the unreachable block in IMC coverage report
+    2. Add a <rule> entry with entityName, line, and reason
+    3. Document the reason in the comment field
+-->
+<refinement-file-root>
+  <information comment-version="1" creator="eh2-dv" csCheck="true"
+    save-ref-method="seq" tool-version="Cadence IMC">
+  </information>
+  <rules>
+    <!--
+      Template for adding unreachable code waivers:
+
+      <rule ccType="type" domain="icc"
+        entityName="<module_name>/<block_id>" entityType="block"
+        name="exclude" packageName="worklib"
+        line="<line_number>" text="<code_text>"
+        reviewer="<reviewer_name>" user="1">
+      </rule>
+
+      Example:
+      <rule ccType="type" domain="icc"
+        entityName="el2_dec/123" entityType="block"
+        name="exclude" packageName="worklib"
+        line="456" text="if (CONFIG_PARAM == 0) begin"
+        reviewer="dv-eng" user="1">
+      </rule>
+    -->
+  </rules>
+</refinement-file-root>

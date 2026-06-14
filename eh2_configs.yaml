@@ -1,0 +1,94 @@
+# EH2 Configuration Profiles
+# This file defines different EH2 configurations for verification.
+# Each profile specifies the parameters to use when building the DUT.
+
+default:
+  description: "Default EH2 configuration (AXI4, single-thread, full features)"
+  parameters:
+    # Threading
+    NUM_THREADS: 1
+    # Bus
+    BUILD_AXI4: 1
+    BUILD_AHB_LITE: 0
+    BUILD_AXI_NATIVE: 1
+    LSU_BUS_TAG: 4
+    IFU_BUS_TAG: 4
+    SB_BUS_TAG: 1
+    DMA_BUS_TAG: 1
+    # DCCM
+    DCCM_ENABLE: 1
+    DCCM_SIZE: 64
+    # ICCM
+    ICCM_ENABLE: 1
+    ICCM_SIZE: 64
+    # ICache
+    ICACHE_ENABLE: 1
+    ICACHE_SIZE: 32
+    # ISA Extensions
+    ATOMIC_ENABLE: 1
+    BITMANIP_ZBA: 1
+    BITMANIP_ZBB: 1
+    BITMANIP_ZBC: 1
+    BITMANIP_ZBS: 1
+    # Interrupts
+    PIC_TOTAL_INT: 127
+    # Branch Predictor
+    BHT_SIZE: 512
+    BTB_SIZE: 512
+    RET_STACK_SIZE: 4
+
+minimal:
+  description: "Minimal EH2 configuration (no ICache, no DCCM, few interrupts)"
+  parameters:
+    NUM_THREADS: 1
+    BUILD_AXI4: 1
+    BUILD_AHB_LITE: 0
+    DCCM_ENABLE: 0
+    ICCM_ENABLE: 0
+    ICACHE_ENABLE: 0
+    ATOMIC_ENABLE: 0
+    BITMANIP_ZBA: 0
+    BITMANIP_ZBB: 0
+    BITMANIP_ZBC: 0
+    BITMANIP_ZBS: 0
+    PIC_TOTAL_INT: 16
+    BHT_SIZE: 64
+    BTB_SIZE: 64
+
+dual_thread:
+  description: "Dual-thread EH2 configuration"
+  parameters:
+    NUM_THREADS: 2
+    BUILD_AXI4: 1
+    BUILD_AHB_LITE: 0
+    DCCM_ENABLE: 1
+    DCCM_SIZE: 64
+    ICCM_ENABLE: 1
+    ICCM_SIZE: 64
+    ICACHE_ENABLE: 1
+    ICACHE_SIZE: 32
+    ATOMIC_ENABLE: 1
+    BITMANIP_ZBA: 1
+    BITMANIP_ZBB: 1
+    BITMANIP_ZBC: 1
+    BITMANIP_ZBS: 1
+    PIC_TOTAL_INT: 127
+
+ahb_lite:
+  description: "AHB-Lite bus configuration"
+  parameters:
+    NUM_THREADS: 1
+    BUILD_AXI4: 0
+    BUILD_AHB_LITE: 1
+    DCCM_ENABLE: 1
+    DCCM_SIZE: 64
+    ICCM_ENABLE: 1
+    ICCM_SIZE: 64
+    ICACHE_ENABLE: 1
+    ICACHE_SIZE: 32
+    ATOMIC_ENABLE: 1
+    BITMANIP_ZBA: 1
+    BITMANIP_ZBB: 1
+    BITMANIP_ZBC: 1
+    BITMANIP_ZBS: 1
+    PIC_TOTAL_INT: 127
