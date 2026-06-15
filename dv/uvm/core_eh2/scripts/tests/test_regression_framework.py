@@ -99,6 +99,13 @@ class RegressionFrameworkTest(unittest.TestCase):
 
         self.assertEqual(sim_opts, "+rvvi_trace_dump +rvvi_trace_file=custom.log")
 
+    def test_tracecmp_only_sim_opt_is_added_once(self):
+        sim_opts = run_regress.add_tracecmp_only_sim_opt("+foo=1")
+
+        self.assertEqual(sim_opts, "+foo=1 +tracecmp_only")
+        self.assertEqual(run_regress.add_tracecmp_only_sim_opt(sim_opts),
+                         sim_opts)
+
     def test_rvvi_scoreboard_mismatch_is_fatal(self):
         scoreboard = (
             SCRIPT_DIR.parent / "common" / "rvvi_agent" /
@@ -967,14 +974,107 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                result = run_regress.run_single_test(
-                    entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
+                with mock.patch.object(run_regress, "run_trace_compare",
+                                       return_value=True):
+                    result = run_regress.run_single_test(
+                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
 
             self.assertTrue(result.passed)
             self.assertEqual(len(seen_kwargs), 1)
             self.assertNotIn("capture_output", seen_kwargs[0])
             self.assertIs(seen_kwargs[0]["stdout"], run_regress.subprocess.PIPE)
             self.assertIs(seen_kwargs[0]["stderr"], run_regress.subprocess.PIPE)
+
+    def test_run_single_test_disables_online_scoreboard_for_tracecmp(self):
+        with tempfile.TemporaryDirectory() as td:
+            out_dir = Path(td)
+            entry = {
+                "test": "smoke",
+                "rtl_test": "core_eh2_base_test",
+            }
+            sim_log = out_dir / "smoke_s1" / "sim_smoke_1.log"
+            seen_cmds = []
+
+            class FakeProc:
+                returncode = 0
+                stdout = b"rtl passed"
+                stderr = b""
+
+            def fake_run(cmd, **kwargs):
+                del kwargs
+                seen_cmds.append(cmd)
+                sim_log.parent.mkdir(parents=True, exist_ok=True)
+                sim_log.write_text("TEST PASSED\n", encoding="utf-8")
+                return FakeProc()
+
+            with mock.patch.object(run_regress.subprocess, "run", fake_run):
+                with mock.patch.object(run_regress, "run_trace_compare",
+                                       return_value=True):
+                    result = run_regress.run_single_test(
+                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
+
+            self.assertTrue(result.passed)
+            rtl_cmd = [cmd for cmd in seen_cmds if cmd[1].endswith("run_rtl.py")][0]
+            sim_opts = rtl_cmd[rtl_cmd.index("--sim-opts") + 1]
+            self.assertIn("+tracecmp_only", sim_opts)
+
+    def test_run_single_test_runs_trace_compare_after_rtl_pass(self):
+        with tempfile.TemporaryDirectory() as td:
+            out_dir = Path(td)
+            entry = {
+                "test": "smoke",
+                "rtl_test": "core_eh2_base_test",
+            }
+            sim_log = out_dir / "smoke_s1" / "sim_smoke_1.log"
+
+            class FakeProc:
+                returncode = 0
+                stdout = b"rtl passed"
+                stderr = b""
+
+            def fake_run(cmd, **kwargs):
+                del cmd, kwargs
+                sim_log.parent.mkdir(parents=True, exist_ok=True)
+                sim_log.write_text("TEST PASSED\n", encoding="utf-8")
+                return FakeProc()
+
+            with mock.patch.object(run_regress.subprocess, "run", fake_run):
+                with mock.patch.object(run_regress, "run_trace_compare",
+                                       return_value=True) as cmp_mock:
+                    result = run_regress.run_single_test(
+                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
+
+            self.assertTrue(result.passed)
+            cmp_mock.assert_called_once()
+
+    def test_run_single_test_fails_when_trace_compare_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            out_dir = Path(td)
+            entry = {
+                "test": "smoke",
+                "rtl_test": "core_eh2_base_test",
+            }
+            sim_log = out_dir / "smoke_s1" / "sim_smoke_1.log"
+
+            class FakeProc:
+                returncode = 0
+                stdout = b"rtl passed"
+                stderr = b""
+
+            def fake_run(cmd, **kwargs):
+                del cmd, kwargs
+                sim_log.parent.mkdir(parents=True, exist_ok=True)
+                sim_log.write_text("TEST PASSED\n", encoding="utf-8")
+                return FakeProc()
+
+            with mock.patch.object(run_regress.subprocess, "run", fake_run):
+                with mock.patch.object(run_regress, "run_trace_compare",
+                                       return_value=False):
+                    result = run_regress.run_single_test(
+                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
+
+            self.assertFalse(result.passed)
+            self.assertEqual(result.failure_mode, "TRACECMP_MISMATCH")
 
     def test_check_logs_requires_explicit_pass_signature(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1459,8 +1559,10 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                result = run_regress.run_single_test(
-                    entry, 1, "vcs", str(out_dir), "")
+                with mock.patch.object(run_regress, "run_trace_compare",
+                                       return_value=True):
+                    result = run_regress.run_single_test(
+                        entry, 1, "vcs", str(out_dir), "")
 
             self.assertTrue(result.passed)
             rtl_cmd = [cmd for cmd in seen_cmds if cmd[1].endswith("run_rtl.py")][0]
@@ -1490,8 +1592,10 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                result = run_regress.run_single_test(
-                    entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
+                with mock.patch.object(run_regress, "run_trace_compare",
+                                       return_value=True):
+                    result = run_regress.run_single_test(
+                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
 
             self.assertFalse(result.passed)
             self.assertEqual(result.failure_mode, "SIM_ERROR")
@@ -1522,8 +1626,10 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                result = run_regress.run_single_test(
-                    entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
+                with mock.patch.object(run_regress, "run_trace_compare",
+                                       return_value=True):
+                    result = run_regress.run_single_test(
+                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
 
             self.assertTrue(result.passed)
             self.assertEqual(result.uvm_warnings, 2)
@@ -2184,8 +2290,10 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                result = run_regress.run_single_test(
-                    entry, 3, "vcs", str(root), "")
+                with mock.patch.object(run_regress, "run_trace_compare",
+                                       return_value=True):
+                    result = run_regress.run_single_test(
+                        entry, 3, "vcs", str(root), "")
 
             self.assertTrue(result.passed)
             self.assertEqual(result.test_type, "DIRECTED")
@@ -2219,9 +2327,11 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                result = run_regress.run_single_test(
-                    entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex",
-                    coverage=True, waves=True)
+                with mock.patch.object(run_regress, "run_trace_compare",
+                                       return_value=True):
+                    result = run_regress.run_single_test(
+                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex",
+                        coverage=True, waves=True)
 
             self.assertTrue(result.passed)
             rtl_cmd = seen_cmds[0]

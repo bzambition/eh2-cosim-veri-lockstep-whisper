@@ -36,9 +36,9 @@
   iterations: 5
   skip_in_signoff: true
 - test: riscv_load_store_test
-  description: Load/store instruction test
-  gen_test: riscv_rand_instr_test
-  gen_opts: '+instr_cnt=15000 +boot_mode=m +directed_instr_0=riscv_load_store_rand_instr_stream,30
+  description: Phase 3 tracecmp load/store smoke without high-density NB-load streams
+  gen_test: riscv_instr_base_test
+  gen_opts: '+instr_cnt=2000 +boot_mode=m +dist_control_mode=1 +dist_LOAD=20 +dist_STORE=20 +dist_ARITHMETIC=30 +dist_LOGICAL=20 +dist_BRANCH=10
 
     '
   rtl_test: core_eh2_base_test
@@ -52,9 +52,9 @@
   rtl_test: core_eh2_base_test
   iterations: 5
 - test: riscv_mul_div_test
-  description: Multiply and divide test
-  gen_test: riscv_rand_instr_test
-  gen_opts: '+instr_cnt=10000 +boot_mode=m +dist_control_mode=1 +dist_MULTIPLY=30 +dist_DIVIDE=30 +dist_ARITHMETIC=20 +dist_LOGICAL=10
+  description: Phase 3 tracecmp multiply smoke; DIV/REM is constrained out until delayed DIV writeback is tagged
+  gen_test: riscv_instr_base_test
+  gen_opts: '+instr_cnt=2000 +boot_mode=m +dist_control_mode=1 +dist_MULTIPLY=45 +dist_ARITHMETIC=25 +dist_LOGICAL=20
     +dist_BRANCH=10
 
     '

@@ -5,9 +5,9 @@
 Input records are pipe-delimited and intentionally simple so the SystemVerilog
 collector remains a dumb trace source:
 
-  hart|order|pc|insn|trap|mode|gpr=x1:00000001;...|csr=300:...
+  hart|order|pc|insn|trap|mode|gpr=x1:00000001;...|csr=300:...|tag=load:1
   A|hart|div|x5:00000003
-  A|hart|load|x6:00000004
+  A|hart|load|x6:00000004|tag=1
 
 Async records are lazily consumed by matching load/div retire instructions and
 attached to that instruction's CSV row, hiding microarchitectural writeback
@@ -24,6 +24,8 @@ EH2_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(SCRIPT_DIR))))
 RISCV_DV_SCRIPTS = os.path.join(EH2_ROOT, "vendor", "google_riscv-dv",
                                 "scripts")
+ASYNC_LOOKAHEAD_RETIRES = 8
+LOAD_WRITEBACK_RETIRES = 256
 _OLD_SYS_PATH = list(sys.path)
 try:
     sys.path.insert(0, RISCV_DV_SCRIPTS)
@@ -137,16 +139,16 @@ def _async_source_for(insn):
     return ""
 
 
-def _consume_async(async_q, hart, source, rd):
-    if not source or rd == 0:
+def _parse_tag(field):
+    if not field.startswith("tag="):
         return None
-    q = async_q[(hart, source)]
-    for idx, (queued_rd, value) in enumerate(q):
-        if queued_rd == rd:
-            item = q[idx]
-            del q[idx]
-            return item
-    return None
+    payload = field.split("=", 1)[1].strip()
+    if not payload:
+        return None
+    if ":" in payload:
+        source, tag = payload.split(":", 1)
+        return source.strip().lower(), int(tag.strip(), 0)
+    return "", int(payload, 0)
 
 
 def _parse_async(parts):
@@ -157,7 +159,12 @@ def _parse_async(parts):
     reg, value = parts[3].split(":", 1)
     if not reg.strip().lower().startswith("x"):
         raise RuntimeError("Async writeback must use xN register: {}".format(parts[3]))
-    return hart, source, int(reg.strip()[1:], 0), _norm_hex(value)
+    tag = None
+    for field in parts[4:]:
+        parsed_tag = _parse_tag(field)
+        if parsed_tag is not None:
+            _tag_source, tag = parsed_tag
+    return hart, source, int(reg.strip()[1:], 0), _norm_hex(value), tag
 
 
 def _parse_retire(parts):
@@ -169,29 +176,22 @@ def _parse_retire(parts):
     mode = parts[5].strip()
     gpr_updates = []
     csr_updates = []
+    async_tag = None
     for field in parts[6:]:
         if field.startswith("gpr="):
             gpr_updates.extend(_parse_updates(field, "gpr"))
         elif field.startswith("csr="):
             csr_updates.extend(_parse_updates(field, "csr"))
-    return hart, pc, insn_text, mode, gpr_updates, csr_updates
+        elif field.startswith("tag="):
+            async_tag = _parse_tag(field)
+    return hart, pc, insn_text, mode, gpr_updates, csr_updates, async_tag
 
 
-def _entry_from_retire(hart, pc, insn_text, mode, gpr_updates, csr_updates,
-                       async_q):
+def _entry_from_retire(pc, insn_text, mode, gpr_updates, csr_updates):
     entry = RiscvInstructionTraceEntry()
     entry.pc = pc
     entry.binary = insn_text
     entry.mode = mode
-
-    insn = int(insn_text, 16) if insn_text else 0
-    source = _async_source_for(insn)
-    rd = _write_rd(insn)
-    if not gpr_updates:
-        async_update = _consume_async(async_q, hart, source, rd)
-        if async_update:
-            queued_rd, value = async_update
-            gpr_updates = [("x{}".format(queued_rd), value)]
 
     for reg, value in gpr_updates:
         entry.gpr.append("{}:{}".format(_xreg_to_abi(reg), value))
@@ -200,33 +200,130 @@ def _entry_from_retire(hart, pc, insn_text, mode, gpr_updates, csr_updates,
     return entry
 
 
-def _load_events(trace_fd):
-    retires = []
-    async_q = defaultdict(deque)
+def _pending_key(hart, insn_text):
+    insn = int(insn_text, 16) if insn_text else 0
+    source = _async_source_for(insn)
+    rd = _write_rd(insn)
+    if not source or rd == 0:
+        return None
+    return hart, source, rd
+
+
+def _tagged_key(hart, source, tag):
+    if tag is None:
+        return None
+    return hart, source, "tag", tag
+
+
+def _patch_entry_gpr(entry, rd, value):
+    entry.gpr = ["{}:{}".format(_xreg_to_abi("x{}".format(rd)), value)]
+
+
+def _flush_ready(trace_csv, ordered_entries):
+    while ordered_entries and not ordered_entries[0]["waiting"]:
+        entry = ordered_entries.popleft()["entry"]
+        trace_csv.write_trace_entry(entry)
+
+
+def _flush_all(trace_csv, ordered_entries):
+    while ordered_entries:
+        entry = ordered_entries.popleft()["entry"]
+        trace_csv.write_trace_entry(entry)
+
+
+def _age_pending_values(pending_values):
+    for key in list(pending_values.keys()):
+        aged = deque()
+        for rd, value, ttl in pending_values[key]:
+            if ttl > 1:
+                aged.append((rd, value, ttl - 1))
+        if aged:
+            pending_values[key] = aged
+        else:
+            del pending_values[key]
+
+
+def _age_pending_rows(ordered_entries):
+    for row in ordered_entries:
+        if not row["waiting"]:
+            continue
+        if row["ttl"] is None:
+            continue
+        if row["ttl"] > 1:
+            row["ttl"] -= 1
+        else:
+            row["waiting"] = False
+            row["ttl"] = 0
+
+
+def _consume_pending_value(pending_values, key):
+    q = pending_values[key]
+    if not q:
+        return None
+    rd, value, _ttl = q.popleft()
+    if not q:
+        del pending_values[key]
+    return rd, value
+
+
+def convert_rvvi_trace_fd(trace_fd, csv_fd):
+    trace_csv = RiscvInstructionTraceCsv(csv_fd)
+    trace_csv.start_new_trace()
+    pending_async = defaultdict(deque)
+    pending_values = defaultdict(deque)
+    ordered_entries = deque()
+    count = 0
     for raw_line in trace_fd:
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
         parts = line.split("|")
         if parts[0] == "A":
-            hart, source, rd, value = _parse_async(parts)
-            async_q[(hart, source)].append((rd, value))
+            hart, source, rd, value, async_tag = _parse_async(parts)
+            key = _tagged_key(hart, source, async_tag) or (hart, source, rd)
+            while pending_async[key]:
+                row = pending_async[key].popleft()
+                if not row["waiting"]:
+                    continue
+                entry = row["entry"]
+                _patch_entry_gpr(entry, rd, value)
+                row["waiting"] = False
+                row["ttl"] = 0
+                _flush_ready(trace_csv, ordered_entries)
+                break
+            else:
+                pending_values[key].append(
+                    (rd, value, ASYNC_LOOKAHEAD_RETIRES))
             continue
 
-        retires.append(_parse_retire(parts))
-    return retires, async_q
-
-
-def convert_rvvi_trace_fd(trace_fd, csv_fd):
-    trace_csv = RiscvInstructionTraceCsv(csv_fd)
-    trace_csv.start_new_trace()
-    retires, async_q = _load_events(trace_fd)
-
-    count = 0
-    for retire in retires:
-        entry = _entry_from_retire(*retire, async_q)
-        trace_csv.write_trace_entry(entry)
+        hart, pc, insn_text, mode, gpr_updates, csr_updates, async_tag = _parse_retire(parts)
+        _age_pending_values(pending_values)
+        _age_pending_rows(ordered_entries)
+        entry = _entry_from_retire(pc, insn_text, mode, gpr_updates,
+                                   csr_updates)
+        row = {"entry": entry, "waiting": False, "ttl": 0}
+        if not gpr_updates:
+            key = _pending_key(hart, insn_text)
+            if key:
+                source = key[1]
+                tagged = _tagged_key(hart, source, async_tag[1]) if async_tag else None
+                if tagged:
+                    key = tagged
+                pending_value = _consume_pending_value(pending_values, key)
+                if pending_value:
+                    rd, value = pending_value
+                    _patch_entry_gpr(entry, rd, value)
+                else:
+                    row["waiting"] = True
+                    row["ttl"] = (ASYNC_LOOKAHEAD_RETIRES
+                                  if key[1] == "div"
+                                  else LOAD_WRITEBACK_RETIRES)
+                    pending_async[key].append(row)
+        ordered_entries.append(row)
+        _flush_ready(trace_csv, ordered_entries)
         count += 1
+
+    _flush_all(trace_csv, ordered_entries)
 
     if count == 0:
         raise RuntimeError("No retire records found in RVVI trace")

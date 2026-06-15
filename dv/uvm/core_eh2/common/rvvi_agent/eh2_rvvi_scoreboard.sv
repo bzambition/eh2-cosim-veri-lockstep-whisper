@@ -411,6 +411,10 @@ module eh2_rvvi_scoreboard #(
     debug_req_net_idx = RVVI_INVALID_INDEX;
 
     begin
+      if ($test$plusargs("tracecmp_only")) begin
+        enabled = 1'b0;
+        $display("RVVI_SCOREBOARD: online lockstep disabled by +tracecmp_only");
+      end else begin
       if (!$value$plusargs("rvvi_elf=%s", elf_path) || elf_path.len() == 0) begin
         $fatal(1, "RVVI_SCOREBOARD: +rvvi_elf=<program.elf> is required");
       end
@@ -433,6 +437,7 @@ module eh2_rvvi_scoreboard #(
       debug_req_net_idx = rvviRefNetIndexGet("DEBUG_REQ");
       initialized = 1'b1;
       $display("RVVI_SCOREBOARD: online lockstep enabled with %s", elf_path);
+      end
     end
   end
 

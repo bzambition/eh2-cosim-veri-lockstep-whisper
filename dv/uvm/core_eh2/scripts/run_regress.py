@@ -33,6 +33,7 @@ from metadata import (
 from check_logs import check_sim_log
 from collect_results import generate_report_json
 import directed_test_schema
+import rvvi_trace_to_trace_csv
 
 
 # Paths
@@ -152,6 +153,14 @@ def add_rvvi_trace_dump_sim_opts(sim_opts: str, trace_path: str) -> str:
     return " ".join(piece for piece in pieces if piece)
 
 
+def add_tracecmp_only_sim_opt(sim_opts: str) -> str:
+    """Disable online RVVI lockstep so offline tracecmp owns pass/fail."""
+    sim_opts = (sim_opts or "").strip()
+    if "+tracecmp_only" in sim_opts:
+        return sim_opts
+    return " ".join(piece for piece in (sim_opts, "+tracecmp_only") if piece)
+
+
 def write_process_log(path: str, proc: subprocess.CompletedProcess):
     """Write captured subprocess stdout/stderr to a durable log file."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -178,6 +187,63 @@ def run_captured(cmd: list, timeout: int) -> subprocess.CompletedProcess:
         stderr=subprocess.PIPE,
         timeout=timeout,
     )
+
+
+def _line_count(path: str) -> int:
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        return sum(1 for _ in f)
+
+
+def run_trace_compare(work_dir: str, binary: str) -> bool:
+    """Run DUT RVVI dump vs standalone EH2-Spike trace comparison."""
+    rvvi_trace = os.path.join(work_dir, "rvvi_trace.log")
+    dut_csv = os.path.join(work_dir, "dut_trace.csv")
+    ref_csv = os.path.join(work_dir, "ref_trace.csv")
+    compare_log = os.path.join(work_dir, "trace_compare.log")
+    rvviref_exe = os.path.join(EH2_ROOT, "build", "rvviref", "spike_rvvi_main")
+    compare_py = os.path.join(RISCV_DV_DIR, "scripts", "instr_trace_compare.py")
+
+    root, ext = os.path.splitext(binary)
+    elf_path = root + ".elf" if ext in (".hex", ".bin") else binary + ".elf"
+    if not os.path.exists(rvvi_trace):
+        with open(compare_log, "w", encoding="utf-8") as log_f:
+            log_f.write("ERROR: missing DUT RVVI trace: {}\n".format(rvvi_trace))
+        return False
+    if not os.path.exists(elf_path):
+        with open(compare_log, "w", encoding="utf-8") as log_f:
+            log_f.write("ERROR: missing ELF for EH2-Spike: {}\n".format(elf_path))
+        return False
+
+    try:
+        rvvi_trace_to_trace_csv.convert_rvvi_trace(rvvi_trace, dut_csv)
+    except RuntimeError as err:
+        with open(compare_log, "w", encoding="utf-8") as log_f:
+            log_f.write("ERROR: DUT trace conversion failed: {}\n".format(err))
+        return False
+
+    steps = max(1, _line_count(dut_csv) - 1)
+    ref_proc = run_captured([rvviref_exe, elf_path, ref_csv, str(steps)], 300)
+    if ref_proc.returncode != 0:
+        write_process_log(compare_log, ref_proc)
+        return False
+
+    cmp_proc = run_captured([
+        sys.executable, compare_py,
+        "--csv_file_1", dut_csv,
+        "--csv_file_2", ref_csv,
+        "--csv_name_1", "dut",
+        "--csv_name_2", "ref",
+        "--log", compare_log,
+    ], 300)
+    if cmp_proc.returncode != 0:
+        write_process_log(compare_log, cmp_proc)
+        return False
+
+    try:
+        with open(compare_log, "r", encoding="utf-8", errors="replace") as log_f:
+            return "[PASSED]" in log_f.read()
+    except FileNotFoundError:
+        return False
 
 
 def run_single_test(test_entry: dict, seed: int, simulator: str,
@@ -300,6 +366,7 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
     sim_opts = add_rvvi_elf_sim_opt(sim_opts, binary)
     sim_opts = add_rvvi_trace_dump_sim_opts(
         sim_opts, os.path.join(work_dir, "rvvi_trace.log"))
+    sim_opts = add_tracecmp_only_sim_opt(sim_opts)
 
     # Step 3: Run RTL simulation
     sim_start = time.time()
@@ -346,6 +413,11 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
     result.num_instructions = check_result.num_instructions
     result.num_cycles = check_result.num_cycles
     result.ipc = check_result.ipc
+
+    if result.passed:
+        if not run_trace_compare(work_dir, binary):
+            result.passed = False
+            result.failure_mode = "TRACECMP_MISMATCH"
 
     # Save result
     return save_and_return(result, work_dir)
