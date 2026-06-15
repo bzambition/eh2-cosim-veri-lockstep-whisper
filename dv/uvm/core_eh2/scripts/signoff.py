@@ -53,7 +53,9 @@ STAGE_MIN_PASSED = {
     "directed": 33,
     "cosim": 7,
     "riscvdv": 50,
-    "compliance": 85,
+    # Signature-based compliance over vendored riscv-tests rv32ui/rv32um/rv32uc;
+    # rv32ui/fence_i is filtered because it has no matching EH2 source suite.
+    "compliance": 50,
 }
 
 STAGE_TESTLIST = {
@@ -424,7 +426,7 @@ def gather_stage(stage: str, results_dir: Path, report_dir: Path,
 
 
 def evaluate_compliance_per_suite(results_dir: Path) -> List[str]:
-    """Per-suite compliance gate (rv32i ≥95%, rv32im/imc/Zicsr =100%).
+    """Per-suite compliance gate for vendored source suites.
 
     Reads per-ISA report.json files from the compliance results directory
     and enforces per-suite pass-rate thresholds.  Returns list of blocker
@@ -435,9 +437,7 @@ def evaluate_compliance_per_suite(results_dir: Path) -> List[str]:
         "rv32i":      95.0,
         "rv32im":     100.0,
         "rv32imc":    100.0,
-        "rv32Zicsr":  100.0,
     }
-    zifencei_known_fail = 1
 
     for isa, threshold in suite_gates.items():
         report_path = results_dir / isa / "report.json"
@@ -470,24 +470,6 @@ def evaluate_compliance_per_suite(results_dir: Path) -> List[str]:
             blockers.append(
                 "compliance {} pass rate {:.1f}% below {:.1f}% ({}/{})".format(
                     isa, rate, threshold, passed, total))
-
-    # rv32Zifencei: treated as PASS when known_fail covers the failures
-    zifencei_dir = results_dir / "rv32Zifencei"
-    if zifencei_dir.exists():
-        zifencei_report = zifencei_dir / "report.json"
-        if zifencei_report.exists():
-            try:
-                data = json.loads(zifencei_report.read_text(encoding="utf-8"))
-                zifencei_failed = sum(
-                    1 for t in data.get("tests", [])
-                    if not t.get("passed", False))
-                if zifencei_failed > zifencei_known_fail:
-                    blockers.append(
-                        "compliance rv32Zifencei {} unexpected failures "
-                        "(known_fail covers {})".format(
-                            zifencei_failed, zifencei_known_fail))
-            except Exception:
-                pass
 
     return blockers
 

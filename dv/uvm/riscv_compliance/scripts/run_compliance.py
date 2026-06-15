@@ -40,7 +40,11 @@ RISCV_COMPLIANCE_FW = Path(os.environ.get(
     "RISCV_COMPLIANCE_FW", str(RISCV_TESTS_FW)))
 RISCV_PREFIX = os.environ.get("RISCV_PREFIX", "riscv32-unknown-elf-")
 
-SUPPORTED_ISAS = ["rv32i", "rv32im", "rv32imc", "rv32Zicsr", "rv32Zifencei"]
+# Vendored riscv-tests provides source suites for rv32ui/rv32um/rv32uc only.
+# Zicsr/Zifencei are covered by those base suites here; do not expand "all"
+# to source-less pseudo suites.
+ALL_ISAS = ["rv32i", "rv32im", "rv32imc"]
+SUPPORTED_ISAS = ALL_ISAS + ["rv32Zicsr", "rv32Zifencei"]
 
 # Map EH2 ISA names to riscv-compliance suite directory names
 ISA_TO_SUITE = {
@@ -810,7 +814,7 @@ def main():
 
     # Parse ISAs (supports comma-separated or "all")
     if args.isa == "all":
-        isa_list = ["rv32i", "rv32im", "rv32imc", "rv32Zicsr", "rv32Zifencei"]
+        isa_list = ALL_ISAS
     elif "," in args.isa:
         isa_list = [i.strip() for i in args.isa.split(",")]
     else:

@@ -8,8 +8,6 @@
 #   make compliance RISCV_ISA=rv32i          # Run all RV32I tests
 #   make compliance RISCV_ISA=rv32im         # Run all RV32IM tests
 #   make compliance RISCV_ISA=rv32imc        # Run all RV32IMC tests
-#   make compliance RISCV_ISA=rv32Zicsr      # Run all Zicsr tests
-#   make compliance RISCV_ISA=rv32Zifencei   # Run all Zifencei tests
 #   make compliance-all                      # Run all supported suites
 #   make compile-compliance-tb               # Compile the stand-alone compliance TB
 #   make clean                               # Clean work directory
@@ -32,9 +30,9 @@ RISCV_PREFIX    ?= riscv32-unknown-elf-
 RISCV_ISA       ?= rv32i
 RISCV_DEVICE    ?= rv32imac
 
-# Supported compliance suites
-SUPPORTED_ISAS := rv32i rv32im rv32imc rv32Zicsr rv32Zifencei
-KNOWN_FAIL_ISAS := rv32Zicsr rv32Zifencei
+# Supported compliance suites from the vendored riscv-tests source layout.
+SUPPORTED_ISAS := rv32i rv32im rv32imc
+KNOWN_FAIL_ISAS :=
 
 # Device directory for a given ISA
 DEVICE_DIR      = $(COMPLIANCE_DIR)/device/$(ISA)

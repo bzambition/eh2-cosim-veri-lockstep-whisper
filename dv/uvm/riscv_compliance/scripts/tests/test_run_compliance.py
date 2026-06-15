@@ -108,6 +108,12 @@ class RunComplianceTest(unittest.TestCase):
             self.assertEqual(result["total"], 1)
             self.assertEqual(result["tests"][0]["name"], "add")
 
+    def test_all_isa_expands_only_to_vendored_source_suites(self):
+        self.assertEqual(
+            run_compliance.ALL_ISAS,
+            ["rv32i", "rv32im", "rv32imc"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

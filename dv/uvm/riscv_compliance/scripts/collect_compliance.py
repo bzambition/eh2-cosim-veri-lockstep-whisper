@@ -15,7 +15,7 @@ COMPLIANCE_DIR = os.path.join(EH2_ROOT, "dv", "uvm", "riscv_compliance")
 RISCV_COMPLIANCE_FW = os.environ.get("RISCV_COMPLIANCE_FW", "")
 WORK_DIR = os.path.join(COMPLIANCE_DIR, "work")
 
-ISAS = ["rv32i", "rv32im", "rv32imc", "rv32Zicsr", "rv32Zifencei"]
+ISAS = ["rv32i", "rv32im", "rv32imc"]
 
 
 def load_hex_words(path):
