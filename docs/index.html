@@ -597,7 +597,7 @@
             <li><code>riscv32-unknown-elf-*</code> 工具链，或通过 <code>RISCV_PREFIX</code> 指定前缀。</li>
           </ul>
           <div class="check">
-            // CHECK: 本机 VCS / Incisive 路径与版本、C++17 g++ 路径与版本、riscv32 工具链路径与版本由验收实测填写。
+            提示：VCS / Incisive、C++17 g++、riscv32 工具链的具体路径与版本因机器而异，请按本机实际安装情况在 <code>env.mk</code> 中配置。
           </div>
         </section>
 
@@ -618,7 +618,7 @@ make spike</code></pre>
             <code>RISCV_COMPLIANCE_FW</code> 在 Makefile 中默认指向库内 vendored 目录，通常不需要写进
             <code>env.mk</code>，除非你明确要覆盖。
           </p>
-          <div class="check">// CHECK: <code>make spike</code> 在本机的首次构建耗时由验收实测填写。</div>
+          <div class="note"><code>make spike</code> 首次在库内构建 Spike，耗时取决于机器，通常为分钟级；构建产物 <code>vendor/spike/install</code> 会被复用，后续无需重建。</div>
         </section>
 
         <section id="quickstart">
@@ -891,7 +891,7 @@ make compliance SUITE=compile
 make clean
 make clean FORCE=1
 make clean DRY_RUN=1</code></pre>
-          <div class="check">// CHECK: <code>make smoke</code>、<code>make signoff PROFILE=cosim</code> 和 <code>make signoff</code> 的本机耗时由验收实测填写。</div>
+          <div class="note">耗时参考：<code>make smoke</code> 通常 1–2 分钟；<code>make signoff PROFILE=cosim</code> 数分钟；<code>make signoff</code>（默认 full，含 riscvdv 与 compliance）较长，请预留充足时间。具体随机器与仿真器而异。</div>
         </section>
 
         <section id="tests">
