@@ -696,10 +696,10 @@ make cosim SVDPI_INCLUDE=/path/to/svdpi.h</code></pre>
           <section id="target-rvviref">
             <h4><code>make rvviref</code></h4>
             <p>构建并运行独立 Spike RVVI 参考模型，不启动 RTL 仿真，适合快速看参考侧 retire trace。</p>
-            <p><strong>前置依赖：</strong><code>asm $(RVVIREF_EXE)</code>。<strong>接受变量：</strong><code>BINARY</code>、<code>RVVIREF_STEPS</code>、<code>RVVIREF_LOG</code>、<code>SPIKE_DIR</code>、<code>SPIKE_INSTALL</code>、<code>SPIKE_CXX</code>、<code>SPIKE_CXXFLAGS</code>、<code>SPIKE_BUILD</code>。</p>
+            <p><strong>前置依赖：</strong><code>asm $(RVVIREF_EXE)</code>。<strong>接受变量：</strong><code>BINARY</code>、<code>RVVIREF_STEPS</code>、<code>RVVIREF_LOG</code>、<code>SPIKE_DIR</code>、<code>SPIKE_INSTALL</code>、<code>SPIKE_CXX</code>、<code>SPIKE_CXXFLAGS</code>、<code>SPIKE_BUILD</code>。输出为 riscv-dv 可读取的 CSV。</p>
             <pre><code>make rvviref
 make rvviref BINARY=tests/asm/smoke.elf RVVIREF_STEPS=20
-make rvviref RVVIREF_LOG=build/rvviref/custom.log</code></pre>
+make rvviref RVVIREF_LOG=build/rvviref/custom.csv</code></pre>
           </section>
 
           <section id="target-asm">
@@ -846,7 +846,7 @@ make clean FORCE=1</code></pre>
               <tr><td><code>SVDPI_INCLUDE</code></td><td><code>$(firstword ...)</code></td><td><code>/path/to/svdpi.h</code></td><td><code>svdpi.h</code> 文件路径；默认从 <code>NC_INSTALL</code> 或本地 VCS 安装路径查找。</td></tr>
               <tr><td><code>BINARY</code></td><td><code>$(ASM_DIR)/smoke.elf</code></td><td><code>tests/asm/cosim_alu.elf</code></td><td><code>make rvviref</code> 的输入 ELF。</td></tr>
               <tr><td><code>RVVIREF_STEPS</code></td><td><code>6</code></td><td>整数</td><td>独立 RVVI ref 前进的指令数。</td></tr>
-              <tr><td><code>RVVIREF_LOG</code></td><td><code>$(RVVIREF_BUILD)/rvvi_ref_trace.log</code></td><td>路径</td><td>独立 RVVI ref trace 输出路径。</td></tr>
+              <tr><td><code>RVVIREF_LOG</code></td><td><code>$(RVVIREF_BUILD)/rvvi_ref_trace.csv</code></td><td>路径</td><td>独立 EH2-Spike ref CSV 输出路径。</td></tr>
             </tbody>
           </table>
 

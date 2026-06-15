@@ -152,7 +152,7 @@ EH2 Cosim 验证平台 — Makefile 入口（cosim-only 精简版）
   make asm                编译 tests/asm/*.S → hex/elf/dis
   make spike              在 vendor/spike 内构建并安装 Spike
   make cosim              编译 Spike RVVI-API DPI libcosim.so（默认链接 vendor/spike/install）
-  make rvviref            独立运行 Spike RVVI-API ref，输出 build/rvviref/rvvi_ref_trace.log
+  make rvviref            独立运行 EH2-Spike ref，输出 build/rvviref/rvvi_ref_trace.csv
   make compile            编译 UVM testbench（SIMULATOR=vcs→simv / nc→INCA_libs）；COV=0|1  WAVES=0|1
 
 [ 看波形 / 清理 ]
@@ -246,7 +246,7 @@ RVVIREF_BUILD := $(BUILD_DIR)/rvviref
 RVVIREF_EXE   := $(RVVIREF_BUILD)/spike_rvvi_main
 BINARY        ?= $(ASM_DIR)/smoke.elf
 RVVIREF_STEPS ?= 6
-RVVIREF_LOG   ?= $(RVVIREF_BUILD)/rvvi_ref_trace.log
+RVVIREF_LOG   ?= $(RVVIREF_BUILD)/rvvi_ref_trace.csv
 
 rvviref: asm $(RVVIREF_EXE)
 	@if [ ! -f "$(BINARY)" ]; then \

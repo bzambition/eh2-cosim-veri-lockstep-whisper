@@ -2374,6 +2374,14 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("if (!store) {", spike_cosim)
         self.assertIn("return kCheckMemOk;", spike_cosim)
 
+    def test_rvviref_standalone_writes_riscv_dv_csv(self):
+        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
+
+        self.assertIn("pc,instr,gpr,csr,binary,mode,instr_str,operand,pad", rvviref)
+        self.assertIn("rvviRefGprsWrittenGet", rvviref)
+        self.assertIn("rvviRefGprGet", rvviref)
+
     def test_root_readme_documents_rvvi_cosim_platform(self):
         readme = SCRIPT_DIR.parents[3] / "README.md"
 
