@@ -263,6 +263,10 @@
       <a href="#architecture">架构总图</a>
       <a href="#components">关键组件</a>
       <a href="#mechanism">协同仿真机制</a>
+      <a href="#rvvi-api">RVVI-API 接口映射</a>
+      <a href="#csr-exempt">EH2 自定义 CSR 豁免</a>
+      <a href="#config">核配置 Profile</a>
+      <a href="#coverage">功能覆盖率体系</a>
       <a href="#signoff-design">签核设计</a>
       <a href="#vendoring">自包含与 vendoring</a>
       <a href="#tree">目录结构</a>
@@ -273,6 +277,7 @@
       <a href="#targets">Make target 参考</a>
       <a href="#variables">变量参考</a>
       <a href="#workflows">典型工作流</a>
+      <a href="#tests">测试体系</a>
       <a href="#add-test">新增 cosim 定向测试</a>
       <a href="#debug">失配排查</a>
       <a href="#ci">CI 单测</a>
@@ -413,6 +418,87 @@
           </p>
         </section>
 
+        <section id="rvvi-api">
+          <h3>RVVI-API 接口映射</h3>
+          <p>
+            scoreboard 与 <code>spike_rvvi.cc</code> 之间通过官方 RVVI-API（DPI 函数，声明在
+            <code>vendor/rvvi/include/host/rvvi/rvviApi.h</code>）通信。函数分两侧：<strong>DUT 侧</strong>把
+            RTL 观测到的状态推给 RVVI；<strong>Ref 侧</strong>驱动、查询、比对 Spike 参考模型。下表是
+            lockstep 主循环用到的核心函数（完整 API 见上游头文件）。
+          </p>
+          <h4>DUT 侧（RTL → RVVI）</h4>
+          <table>
+            <thead><tr><th>函数</th><th>作用</th></tr></thead>
+            <tbody>
+              <tr><td><code>rvviDutRetire</code></td><td>提交一条 DUT retire（hart, order, PC, insn）。</td></tr>
+              <tr><td><code>rvviDutTrap</code></td><td>提交一次 DUT trap 事件。</td></tr>
+              <tr><td><code>rvviDutGprSet</code></td><td>登记 DUT 本条 retire 写回的 GPR 值。</td></tr>
+              <tr><td><code>rvviDutCsrSet</code></td><td>登记 DUT 侧 CSR 值。</td></tr>
+              <tr><td><code>rvviDutBusWrite</code></td><td>把 DUT store 总线写（地址/数据/byte-enable）通知参考侧，对齐内存视图。</td></tr>
+              <tr><td><code>rvviDutCycleCountSet</code></td><td>登记周期计数。</td></tr>
+            </tbody>
+          </table>
+          <h4>Ref 侧（驱动 / 比对 Spike）</h4>
+          <table>
+            <thead><tr><th>函数</th><th>作用</th></tr></thead>
+            <tbody>
+              <tr><td><code>rvviRefInit</code></td><td>初始化参考模型、加载 ELF；<code>rvviRefConfigSetInt</code> 配 hart 数等。</td></tr>
+              <tr><td><code>rvviRefPcSet</code> / <code>rvviRefGprSet</code> / <code>rvviRefCsrSet</code></td><td>预置参考侧 PC / GPR / CSR 初值（含 28 自定义 CSR 预注册）。</td></tr>
+              <tr><td><code>rvviRefEventStep</code></td><td>让 Spike 步进一条指令。</td></tr>
+              <tr><td><code>rvviRefEventComplete</code></td><td>标记本次 retire 事件处理完成。</td></tr>
+              <tr><td><code>rvviRefPcCompare</code></td><td>比对 PC。</td></tr>
+              <tr><td><code>rvviRefInsBinCompare</code></td><td>比对指令编码。</td></tr>
+              <tr><td><code>rvviRefGprsCompareWritten</code></td><td>只比对本条写过的 GPR（配合异步写回延迟匹配）。</td></tr>
+              <tr><td><code>rvviRefCsrsCompare</code> / <code>rvviRefCsrCompare</code></td><td>比对 CSR。</td></tr>
+              <tr><td><code>rvviRefCsrCompareEnable</code> / <code>rvviRefCsrCompareMask</code></td><td>CSR 豁免窗开关 / 掩码（自定义 CSR 不参与比对）。</td></tr>
+              <tr><td><code>rvviRefNetSet</code></td><td>异步注入中断 / NMI / debug 请求 net。</td></tr>
+              <tr><td><code>rvviRefMemoryRead</code> / <code>rvviRefMemoryWrite</code></td><td>参考侧内存读写。</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="csr-exempt">
+          <h3>EH2 自定义 CSR 豁免清单</h3>
+          <p>
+            EH2 含一批非标准 CSR，Spike 默认会对它们抛 illegal-instruction trap。平台在
+            <code>dv/cosim/spike_cosim.cc</code> 中<strong>预注册</strong>这些 CSR（唯一源），使 Spike
+            能读写但<strong>不纳入 lockstep 比对</strong>（经 <code>rvviRefCsrCompareEnable</code> 豁免）。共约 29 个，按功能分组：
+          </p>
+          <table>
+            <thead><tr><th>分组</th><th>CSR（地址 名称）</th></tr></thead>
+            <tbody>
+              <tr><td>电源 / 缓存 / 特性控制</td><td><code>0x7C0 mrac</code>、<code>0x7F9 mfdc</code>、<code>0x7F8 mcgc</code>、<code>0x7C6 mpmc</code>、<code>0x7C2 mcpc</code>、<code>0x7FF mscause</code></td></tr>
+              <tr><td>SMT / hart 控制</td><td><code>0x7FC mhartstart</code>、<code>0x7FE mnmipdel</code>、<code>0xFC4 mhartnum</code></td></tr>
+              <tr><td>内部定时器</td><td><code>0x7D2 mitcnt0</code>、<code>0x7D5 mitcnt1</code>、<code>0x7D3 mitb0</code>、<code>0x7D6 mitb1</code>、<code>0x7D4 mitctl0</code>、<code>0x7D7 mitctl1</code></td></tr>
+              <tr><td>快速外部中断 / PIC</td><td><code>0xBC8 meivt</code>、<code>0xFC8 meihap</code>、<code>0xBC9 meipt</code>、<code>0xBCA meicpct</code>、<code>0xBCC meicurpl</code>、<code>0xBCB meicidpl</code></td></tr>
+              <tr><td>内存 ECC 错误</td><td><code>0x7F0 micect</code>、<code>0x7F1 miccmect</code>、<code>0x7F2 mdccmect</code>、<code>0xBC0 mdeau</code>、<code>0xFC0 mdseac</code></td></tr>
+              <tr><td>Debug 辅助</td><td><code>0x7C4 dmst</code>、<code>0x7CE mfdht</code>、<code>0x7CF mfdhs</code></td></tr>
+            </tbody>
+          </table>
+          <div class="note">
+            标准 trap CSR（<code>mstatus/mtvec/mepc/mcause/mtval/mip</code>）<strong>参与</strong>比对。
+            其余未在 adapter surface 暴露的标准 CSR 当前未比对——这是覆盖边界，不是 bug，扩展全 CSR 比对是后续工作。
+          </div>
+        </section>
+
+        <section id="config">
+          <h3>核配置 Profile</h3>
+          <p>
+            <code>eh2_configs.yaml</code> 定义多套 EH2 DUT 配置，由 <code>CONFIG</code> 选择。
+            单/双线程影响 <code>RVVI_NHART</code> 与 snapshot 选择。
+          </p>
+          <table>
+            <thead><tr><th>CONFIG</th><th>线程</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td><code>default</code></td><td>1</td><td>默认：AXI4、单线程、全特性（DCCM/ICCM 64KB、ICache 32KB、Atomic、Bitmanip Zba/Zbb/Zbc/Zbs、PIC 127 中断、BHT/BTB 512）。</td></tr>
+              <tr><td><code>dual_thread</code> / <code>default_mt</code></td><td>2</td><td>双线程 SMT：触发 <code>RVVI_NHART=2</code> + snapshot <code>rtl/snapshots/default_mt</code>，运行时配 <code>+rvvi_nhart=2</code>。</td></tr>
+              <tr><td><code>minimal</code></td><td>1</td><td>精简：无 ICache/DCCM/ICCM、无 Atomic/Bitmanip、PIC 16 中断。</td></tr>
+              <tr><td><code>ahb_lite</code></td><td>1</td><td>AHB-Lite 总线（非 AXI4）配置。</td></tr>
+            </tbody>
+          </table>
+          <div class="note">cosim lockstep 主路径在 <code>default</code> 与 <code>dual_thread</code> 上验证；<code>minimal</code>/<code>ahb_lite</code> 为配置维度保留。</div>
+        </section>
+
         <section id="signoff-design">
           <h3>sign-off 设计</h3>
           <p>
@@ -440,6 +526,29 @@
             当前最小通过数阈值来自 <code>STAGE_MIN_PASSED</code>：<code>smoke=1</code>、
             <code>directed=33</code>、<code>cosim=7</code>、<code>riscvdv=50</code>、
             <code>compliance=85</code>。
+          </p>
+        </section>
+
+        <section id="coverage">
+          <h3>功能覆盖率体系</h3>
+          <p>
+            除仿真器自带的 line/toggle/FSM/branch/assert 覆盖率（由 <code>COV=1</code> 开启）外，平台在
+            <code>dv/uvm/core_eh2/fcov/</code> 下维护功能覆盖率：
+          </p>
+          <table>
+            <thead><tr><th>文件</th><th>职责</th></tr></thead>
+            <tbody>
+              <tr><td><code>fcov/eh2_fcov_if.sv</code></td><td>核心功能覆盖 interface（指令类型、特权模式、trap、异步写回等 covergroup）。</td></tr>
+              <tr><td><code>fcov/eh2_pmp_fcov_if.sv</code></td><td>PMP 专项功能覆盖（TOR/NAPOT/NA4/OFF 模式、R/W/X 组合、跨区、锁定等，约 1461 行）。</td></tr>
+              <tr><td><code>fcov/eh2_fcov_bind.sv</code></td><td>把 fcov interface bind 到 RTL 层级。</td></tr>
+              <tr><td><code>fcov/eh2_csr_categories.svh</code></td><td>CSR 分类定义，供覆盖率/比对引用。</td></tr>
+              <tr><td><code>fcov/cov_waivers/</code></td><td>覆盖率豁免：<code>eh2_cov_waiver_pkg.sv</code> + 不可达 cross 豁免 yaml（dual-issue presync stall、NMI-during-debug 等）。</td></tr>
+            </tbody>
+          </table>
+          <p>
+            VCS/NC 覆盖率配置文件在 TB 根：<code>cover.cfg</code>（层级）、<code>cov_fsm.cfg</code> /
+            <code>cov_fsm_reset_filter.cfg</code>（FSM）、<code>cov_full_nc.ccf</code>（NC 覆盖配置）。
+            签核覆盖率门限由 <code>SIGNOFF_MIN_LINE_COV</code> / <code>SIGNOFF_MIN_FUNCTIONAL_COV</code> 控制。
           </p>
         </section>
 
@@ -783,6 +892,76 @@ make clean
 make clean FORCE=1
 make clean DRY_RUN=1</code></pre>
           <div class="check">// CHECK: <code>make smoke</code>、<code>make signoff PROFILE=cosim</code> 和 <code>make signoff</code> 的本机耗时由验收实测填写。</div>
+        </section>
+
+        <section id="tests">
+          <h3>测试体系</h3>
+          <p>
+            平台测试分四层：<strong>cosim 证明测试</strong>（RVVI lockstep 框架证明点）、<strong>directed 定向测试</strong>
+            （汇编激励，覆盖具体 RTL 特性）、<strong>UVM 测试类</strong>（约 56 个 <code>core_eh2_*_test</code>）、
+            <strong>riscv-dv 随机</strong>（约束随机指令流）。
+          </p>
+
+          <h4>cosim 证明测试（<code>TESTLIST=cosim</code>，7 个）</h4>
+          <p>均以 <code>core_eh2_rvvi_test</code> 运行，构造上即开启 Spike lockstep；签核要求全部通过（<code>STAGE_MIN_PASSED[cosim]=7</code>）。</p>
+          <table>
+            <thead><tr><th>测试</th><th>覆盖点</th></tr></thead>
+            <tbody>
+              <tr><td><code>cosim_smoke</code></td><td>初始化、加载二进制、首次 Spike step、mailbox PASS。</td></tr>
+              <tr><td><code>cosim_alu</code></td><td>确定性 ALU 指令的寄存器写回相关性。</td></tr>
+              <tr><td><code>cosim_load_store</code></td><td>LSU AXI 内存通知路径（确定性 load/store）。</td></tr>
+              <tr><td><code>cosim_dual_issue</code></td><td>EH2 双发射 retire trace 的程序序 lockstep。</td></tr>
+              <tr><td><code>cosim_bitmanip</code></td><td>Zba/Zbb 指令 lockstep（sh1add/andn/clz/max 等）。</td></tr>
+              <tr><td><code>cosim_exception_compare</code></td><td>异常 mcause/mepc 比对（ECALL/illegal/misaligned）。</td></tr>
+              <tr><td><code>cosim_atomic_basic</code></td><td>原子 LR/SC + AMO* lockstep。</td></tr>
+            </tbody>
+          </table>
+
+          <h4>directed 定向测试（<code>TESTLIST=directed</code>，约 40 个）</h4>
+          <p>汇编源在 <code>tests/asm/directed_*.S</code>，签核要求 <code>STAGE_MIN_PASSED[directed]=33</code>。按特性分组：</p>
+          <table>
+            <thead><tr><th>分组</th><th>代表测试</th></tr></thead>
+            <tbody>
+              <tr><td>基础</td><td><code>directed_smoke</code>、<code>directed_alu</code>、<code>directed_load_store</code></td></tr>
+              <tr><td>中断 / PIC</td><td><code>directed_irq_basic</code>、<code>directed_nested_irq</code>、<code>directed_pic_state_walk</code></td></tr>
+              <tr><td>异常 / 调试</td><td><code>directed_illegal_instr</code>、<code>directed_debug_basic</code>、<code>directed_dbg_dret_walk</code></td></tr>
+              <tr><td>双发射 / 异步写回</td><td><code>directed_double_issue_hazard</code>、<code>directed_nb_load_chain</code>（RISK-5）</td></tr>
+              <tr><td>总线 / LSU</td><td><code>directed_axi4_error_inject</code>、<code>directed_dma_burst</code>、<code>directed_lsu_stbuf_full</code></td></tr>
+              <tr><td>CSR</td><td><code>directed_csr_warl</code>（EH2 自定义 CSR WARL）</td></tr>
+              <tr><td>内存完整性 / ECC</td><td><code>directed_iccm_eccerror</code></td></tr>
+              <tr><td><strong>PMP（17 个）</strong></td><td><code>directed_pmp_smoke/regions/tor_basic/napot_basic/na4_basic/off_basic/lock/priority/iside/dside_load/dside_store/xwr_combinations/addr_alignment/cross_region/csr_warl/no_match_default/after_trap/mscause_decode</code></td></tr>
+              <tr><td>Toggle pump（R3-B 覆盖率，5 个）</td><td><code>directed_toggle_axi4_data_walk/csr_walk/rf_walk/dccm_walk/mul_div_walk</code></td></tr>
+            </tbody>
+          </table>
+
+          <h4>UVM 测试类（约 56 个 <code>core_eh2_*_test</code>）</h4>
+          <p>定义在 <code>dv/uvm/core_eh2/tests/</code>，由 <code>UVM_TESTNAME</code> 选择，全部继承 <code>core_eh2_base_test</code>。按领域分组：</p>
+          <table>
+            <thead><tr><th>领域</th><th>测试类</th></tr></thead>
+            <tbody>
+              <tr><td>cosim / 框架</td><td><code>core_eh2_rvvi_test</code>、<code>core_eh2_rvfi_smoke_test</code>、<code>core_eh2_directed_test</code>、<code>core_eh2_base_test</code>、<code>core_eh2_quick_test</code></td></tr>
+              <tr><td>指令类</td><td><code>core_eh2_atomic_test</code>、<code>core_eh2_bitmanip_test</code>、<code>core_eh2_muldiv_test</code>、<code>core_eh2_load_store_test</code>、<code>core_eh2_dual_issue_test</code></td></tr>
+              <tr><td>中断 / NMI</td><td><code>core_eh2_irq_test</code>、<code>core_eh2_irq_nest_test</code>、<code>core_eh2_nested_irq_test</code>、<code>core_eh2_soft_irq_test</code>、<code>core_eh2_timer_irq_test</code>、<code>core_eh2_irq_wfi_test</code>、<code>core_eh2_nmi_test</code>、<code>core_eh2_pic_test</code></td></tr>
+              <tr><td>调试</td><td><code>core_eh2_debug_test</code>、<code>core_eh2_debug_step_test</code>、<code>core_eh2_debug_ebreak_test</code>、<code>core_eh2_debug_ebreakmu_test</code>、<code>core_eh2_debug_wfi_test</code>、<code>core_eh2_debug_in_irq_test</code>、<code>core_eh2_debug_stress_test</code>、<code>core_eh2_dret_test</code>、<code>core_eh2_single_step_test</code> 等</td></tr>
+              <tr><td>PMP / ePMP</td><td><code>core_eh2_pmp_basic_test</code>、<code>core_eh2_pmp_random_test</code>、<code>core_eh2_pmp_disable_test</code>、<code>core_eh2_epmp_mml_test</code>、<code>core_eh2_epmp_mmwp_test</code>、<code>core_eh2_epmp_rlb_test</code></td></tr>
+              <tr><td>CSR / 异常</td><td><code>core_eh2_csr_test</code>、<code>core_eh2_invalid_csr_test</code>、<code>core_eh2_irq_csr_test</code>、<code>core_eh2_debug_csr_test</code>、<code>core_eh2_exception_test</code></td></tr>
+              <tr><td>完整性（intg/ECC）</td><td><code>core_eh2_mem_error_test</code>、<code>core_eh2_mem_intg_error_test</code>、<code>core_eh2_icache_intg_test</code>、<code>core_eh2_ram_intg_test</code>、<code>core_eh2_rf_intg_test</code>、<code>core_eh2_rf_addr_intg_test</code>、<code>core_eh2_pc_intg_test</code></td></tr>
+              <tr><td>压力 / 随机 / 复位</td><td><code>core_eh2_random_test</code>、<code>core_eh2_stress_test</code>、<code>core_eh2_long_run_test</code>、<code>core_eh2_stall_test</code>、<code>core_eh2_reset_test</code>、<code>core_eh2_fetch_toggle_test</code>、<code>core_eh2_fetch_en_chk_test</code></td></tr>
+            </tbody>
+          </table>
+
+          <h4>riscv-dv 随机（<code>TESTLIST=riscvdv</code>）</h4>
+          <p>
+            基于 vendored <code>vendor/google_riscv-dv</code> + 平台扩展 <code>dv/uvm/core_eh2/riscv_dv_extension/</code>
+            （EH2 核参数 <code>riscv_core_setting.sv</code>、定向指令库、log→trace_csv 转换）。生成约束随机指令流，
+            签核要求 <code>STAGE_MIN_PASSED[riscvdv]=50</code>。
+          </p>
+
+          <h4>compliance（<code>TESTLIST</code> 外，独立 stage）</h4>
+          <p>
+            <code>dv/uvm/riscv_compliance/</code> 集成官方 riscv-arch-test，套件源在 <code>vendor/riscv-tests</code>，
+            入口 <code>make compliance</code>，签核要求 <code>STAGE_MIN_PASSED[compliance]=85</code>。
+          </p>
         </section>
 
         <section id="add-test">
