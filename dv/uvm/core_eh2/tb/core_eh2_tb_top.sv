@@ -963,7 +963,16 @@ module core_eh2_tb_top;
     .csr_mcause      (dut_probe_intf.mcause),
     .csr_mtval       (dut_probe_intf.mtval),
     .csr_mip         (dut_probe_intf.mip),
-    .debug_mode      (dut_probe_intf.debug_mode)
+    .debug_mode      (dut_probe_intf.debug_mode),
+    .nb_load_wen     (dut_probe_intf.nb_load_wen),
+    .nb_load_waddr   (dut_probe_intf.nb_load_waddr),
+    .nb_load_data    (dut_probe_intf.nb_load_data),
+    .div_wren        (dut_probe_intf.div_wren),
+    .div_rd          (dut_probe_intf.div_rd),
+    .div_wdata       (dut_probe_intf.div_wdata),
+    .div_cancel      (dut_probe_intf.div_cancel),
+    .div_cancel_overwrite (dut_probe_intf.div_cancel_overwrite),
+    .div_result      (dut_probe_intf.div_result)
   );
 
   //--------------------------------------------------------------------------

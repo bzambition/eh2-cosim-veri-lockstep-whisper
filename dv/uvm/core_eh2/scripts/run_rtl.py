@@ -221,6 +221,16 @@ def add_rvvi_elf_sim_opt(sim_opts: str, binary: Path) -> str:
                     if piece)
 
 
+def add_rvvi_trace_dump_sim_opts(sim_opts: str, trace_path: Path) -> str:
+    sim_opts = (sim_opts or "").strip()
+    pieces = [sim_opts]
+    if "+rvvi_trace_dump" not in sim_opts:
+        pieces.append("+rvvi_trace_dump")
+    if "+rvvi_trace_file=" not in sim_opts:
+        pieces.append("+rvvi_trace_file={}".format(trace_path))
+    return " ".join(piece for piece in pieces if piece)
+
+
 def _directed_test_entry(md: RegressionMetadata, test_name: str) -> dict:
     for candidate in [md.directed_test_data,
                       getattr(md, "cosim_test_data", "")]:
@@ -336,6 +346,8 @@ def run_from_metadata(dir_metadata: str, test_dot_seed: str) -> TestRunResult:
         "core_eh2_base_test"
     md.sim_opts = add_rvvi_elf_sim_opt(
         _merge_sim_opts(test_entry, md_all.sim_opts), binary)
+    md.sim_opts = add_rvvi_trace_dump_sim_opts(
+        md.sim_opts, test_dir / "rvvi_trace.log")
     md.eh2_root = md_all.eh2_root
     md.build_dir = str(Path(md_all.eh2_root) / "build")
     md.out_dir = str(test_dir)
@@ -393,11 +405,15 @@ def main(argv=None) -> int:
     md.coverage = args.coverage
     md.sim_time_ns = args.timeout
     md.rtl_test = args.rtl_test
-    md.sim_opts = args.sim_opts
     if args.build_dir:
         md.build_dir = args.build_dir
     if args.out_dir:
         md.out_dir = args.out_dir
+    trace_dir = Path(md.out_dir) if md.out_dir else \
+        Path(md.eh2_root or str(EH2_ROOT)) / "build" / \
+        "{}_{}".format(md.test_name, md.seed)
+    md.sim_opts = add_rvvi_trace_dump_sim_opts(
+        args.sim_opts, trace_dir / "rvvi_trace.log")
 
     trr = run_rtl_simulation(md)
 

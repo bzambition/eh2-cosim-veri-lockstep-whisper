@@ -114,7 +114,7 @@ def find_generated_asm(work_dir: str, test_name: str) -> str:
 
 
 def build_sim_opts(test_entry: dict, cli_sim_opts: str = "") -> str:
-    """Merge testlist/CLI sim options. RVVI cosim is always enabled."""
+    """Merge testlist/CLI sim options."""
     pieces = []
     entry_opts = test_entry.get("sim_opts", "")
     if entry_opts:
@@ -126,10 +126,11 @@ def build_sim_opts(test_entry: dict, cli_sim_opts: str = "") -> str:
 
 
 def add_rvvi_elf_sim_opt(sim_opts: str, binary: str) -> str:
-    """Add +rvvi_elf=<matching ELF> for the always-on RVVI reference.
+    """Add +rvvi_elf=<matching ELF> for RVVI trace-aware flows.
 
     Directed/regression runs pass +bin=<hex> to the RTL, while the RVVI
-    reference model needs the ELF that compile_test.py emits beside it.
+    trace collector keeps the matching ELF path available for downstream
+    standalone EH2-Spike trace comparison.
     """
     sim_opts = (sim_opts or "").strip()
     if "+rvvi_elf=" in sim_opts:
@@ -138,6 +139,17 @@ def add_rvvi_elf_sim_opt(sim_opts: str, binary: str) -> str:
     root, ext = os.path.splitext(binary)
     elf_path = root + ".elf" if ext in (".hex", ".bin") else binary + ".elf"
     return " ".join(piece for piece in (sim_opts, f"+rvvi_elf={elf_path}") if piece)
+
+
+def add_rvvi_trace_dump_sim_opts(sim_opts: str, trace_path: str) -> str:
+    """Enable the RVVI retire dump unless the caller already configured it."""
+    sim_opts = (sim_opts or "").strip()
+    pieces = [sim_opts]
+    if "+rvvi_trace_dump" not in sim_opts:
+        pieces.append("+rvvi_trace_dump")
+    if "+rvvi_trace_file=" not in sim_opts:
+        pieces.append(f"+rvvi_trace_file={trace_path}")
+    return " ".join(piece for piece in pieces if piece)
 
 
 def write_process_log(path: str, proc: subprocess.CompletedProcess):
@@ -286,6 +298,8 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
 
     result.binary_path = binary
     sim_opts = add_rvvi_elf_sim_opt(sim_opts, binary)
+    sim_opts = add_rvvi_trace_dump_sim_opts(
+        sim_opts, os.path.join(work_dir, "rvvi_trace.log"))
 
     # Step 3: Run RTL simulation
     sim_start = time.time()

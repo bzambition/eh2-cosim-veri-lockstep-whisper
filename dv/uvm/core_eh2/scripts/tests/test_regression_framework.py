@@ -83,6 +83,22 @@ class RegressionFrameworkTest(unittest.TestCase):
 
         self.assertEqual(sim_opts, "+rvvi_elf=custom.elf")
 
+    def test_rvvi_trace_dump_sim_opts_adds_default_trace_file(self):
+        sim_opts = run_regress.add_rvvi_trace_dump_sim_opts(
+            "+foo=1", "build/regress_vcs/cosim_alu_s1/rvvi_trace.log")
+
+        self.assertIn("+foo=1", sim_opts)
+        self.assertIn("+rvvi_trace_dump", sim_opts)
+        self.assertIn(
+            "+rvvi_trace_file=build/regress_vcs/cosim_alu_s1/rvvi_trace.log",
+            sim_opts)
+
+    def test_rvvi_trace_dump_sim_opts_preserves_explicit_trace_file(self):
+        sim_opts = run_regress.add_rvvi_trace_dump_sim_opts(
+            "+rvvi_trace_dump +rvvi_trace_file=custom.log", "ignored.log")
+
+        self.assertEqual(sim_opts, "+rvvi_trace_dump +rvvi_trace_file=custom.log")
+
     def test_rvvi_scoreboard_mismatch_is_fatal(self):
         scoreboard = (
             SCRIPT_DIR.parent / "common" / "rvvi_agent" /
@@ -369,6 +385,8 @@ class RegressionFrameworkTest(unittest.TestCase):
             self.assertEqual(captured["md"].test_type, "DIRECTED")
             self.assertNotIn("+disable_" + "cosim=1", captured["md"].sim_opts)
             self.assertIn("+rvvi_elf=", captured["md"].sim_opts)
+            self.assertIn("+rvvi_trace_dump", captured["md"].sim_opts)
+            self.assertIn("+rvvi_trace_file=", captured["md"].sim_opts)
 
     def test_run_rtl_metadata_mode_applies_cosim_testlist_policy(self):
         with tempfile.TemporaryDirectory() as td:
@@ -407,6 +425,8 @@ class RegressionFrameworkTest(unittest.TestCase):
             self.assertNotIn("+enable_" + "cosim=1", captured["md"].sim_opts)
             self.assertNotIn("+disable_" + "cosim=1", captured["md"].sim_opts)
             self.assertIn("+rvvi_elf=", captured["md"].sim_opts)
+            self.assertIn("+rvvi_trace_dump", captured["md"].sim_opts)
+            self.assertIn("+rvvi_trace_file=", captured["md"].sim_opts)
 
     def test_run_rtl_metadata_mode_skips_missing_binary_after_compile_failure(self):
         with tempfile.TemporaryDirectory() as td:

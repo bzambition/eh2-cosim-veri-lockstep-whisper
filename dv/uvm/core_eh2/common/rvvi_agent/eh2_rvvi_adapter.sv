@@ -38,7 +38,18 @@ module eh2_rvvi_adapter #(
   input logic [NHART-1:0][31:0] csr_mcause,
   input logic [NHART-1:0][31:0] csr_mtval,
   input logic [NHART-1:0][31:0] csr_mip,
-  input logic [NHART-1:0]       debug_mode
+  input logic [NHART-1:0]       debug_mode,
+
+  input logic [NHART-1:0]       nb_load_wen,
+  input logic [NHART-1:0][4:0]  nb_load_waddr,
+  input logic [NHART-1:0][31:0] nb_load_data,
+
+  input logic [NHART-1:0]       div_wren,
+  input logic [NHART-1:0][4:0]  div_rd,
+  input logic [NHART-1:0][31:0] div_wdata,
+  input logic [NHART-1:0]       div_cancel,
+  input logic [NHART-1:0]       div_cancel_overwrite,
+  input logic [NHART-1:0][31:0] div_result
 );
 
   localparam int CSR_MSTATUS = 12'h300;
@@ -223,14 +234,89 @@ module eh2_rvvi_adapter #(
     end
   end
 
+  task automatic dump_gpr_updates(input int h, input int r);
+    bit first;
+    first = 1'b1;
+    $fwrite(dump_fd, "|gpr=");
+    for (int i = 1; i < 32; i++) begin
+      if (x_wb_w[h][r][i]) begin
+        if (!first) $fwrite(dump_fd, ";");
+        $fwrite(dump_fd, "x%0d:%08h", i, x_wdata_w[h][r][i]);
+        first = 1'b0;
+      end
+    end
+  endtask
+
+  task automatic dump_csr_update(input int h, input int r, input int csr);
+    if (csr_wb_w[h][r][csr]) begin
+      $fwrite(dump_fd, "%03h:%08h", csr[11:0], csr_w[h][r][csr]);
+    end
+  endtask
+
+  task automatic dump_csr_updates(input int h, input int r);
+    bit first;
+    first = 1'b1;
+    $fwrite(dump_fd, "|csr=");
+    if (csr_wb_w[h][r][CSR_MSTATUS]) begin
+      if (!first) $fwrite(dump_fd, ";");
+      dump_csr_update(h, r, CSR_MSTATUS);
+      first = 1'b0;
+    end
+    if (csr_wb_w[h][r][CSR_MTVEC]) begin
+      if (!first) $fwrite(dump_fd, ";");
+      dump_csr_update(h, r, CSR_MTVEC);
+      first = 1'b0;
+    end
+    if (csr_wb_w[h][r][CSR_MEPC]) begin
+      if (!first) $fwrite(dump_fd, ";");
+      dump_csr_update(h, r, CSR_MEPC);
+      first = 1'b0;
+    end
+    if (csr_wb_w[h][r][CSR_MCAUSE]) begin
+      if (!first) $fwrite(dump_fd, ";");
+      dump_csr_update(h, r, CSR_MCAUSE);
+      first = 1'b0;
+    end
+    if (csr_wb_w[h][r][CSR_MTVAL]) begin
+      if (!first) $fwrite(dump_fd, ";");
+      dump_csr_update(h, r, CSR_MTVAL);
+      first = 1'b0;
+    end
+    if (csr_wb_w[h][r][CSR_MIP]) begin
+      if (!first) $fwrite(dump_fd, ";");
+      dump_csr_update(h, r, CSR_MIP);
+      first = 1'b0;
+    end
+  endtask
+
+  task automatic dump_async_wb(input int h);
+    if (nb_load_wen[h] && nb_load_waddr[h] != 5'd0) begin
+      $fwrite(dump_fd, "A|%0d|load|x%0d:%08h\n",
+              h, nb_load_waddr[h], nb_load_data[h]);
+    end
+    if (div_wren[h] && div_rd[h] != 5'd0) begin
+      if (div_cancel[h] && div_cancel_overwrite[h]) begin
+        $fwrite(dump_fd, "A|%0d|div|x%0d:%08h\n",
+                h, div_rd[h], div_result[h]);
+      end else if (!div_cancel[h]) begin
+        $fwrite(dump_fd, "A|%0d|div|x%0d:%08h\n",
+                h, div_rd[h], div_wdata[h]);
+      end
+    end
+  endtask
+
   always @(posedge clk) begin
     if (rst_l && dump_enabled && dump_fd != 0) begin
       for (int h = 0; h < NHART; h++) begin
+        dump_async_wb(h);
         for (int r = 0; r < RETIRE; r++) begin
           if (valid_w[h][r]) begin
-            $fwrite(dump_fd, "%0d|%0d|%08h|%08h|%0b|%0d\n",
+            $fwrite(dump_fd, "%0d|%0d|%08h|%08h|%0b|%0d",
                     h, order_w[h][r], pc_rdata_w[h][r], insn_w[h][r],
                     trap_w[h][r], mode_w[h][r]);
+            dump_gpr_updates(h, r);
+            dump_csr_updates(h, r);
+            $fwrite(dump_fd, "\n");
           end
         end
       end
