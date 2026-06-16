@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import os
+import re
 import shutil
 import sys
 import time
@@ -124,7 +125,48 @@ def build_sim_opts(test_entry: dict, cli_sim_opts: str = "") -> str:
     if cli_sim_opts:
         pieces.append(cli_sim_opts.replace("\n", " ").strip())
 
-    return " ".join(piece for piece in pieces if piece).strip()
+    sim_opts = " ".join(piece for piece in pieces if piece).strip()
+    return add_instr_count_runtime_budget(test_entry, sim_opts)
+
+
+def _plusarg_int(text: str, name: str):
+    match = re.search(r"(?:^|\s)\+{}=(0x[0-9a-fA-F]+|\d+)(?:\s|$)".
+                      format(re.escape(name)), text or "")
+    if not match:
+        return None
+    try:
+        return int(match.group(1), 0)
+    except ValueError:
+        return None
+
+
+def add_instr_count_runtime_budget(test_entry: dict, sim_opts: str) -> str:
+    """Size missing runtime plusargs from riscv-dv +instr_cnt.
+
+    Several signoff-sized generated programs retire normally beyond the base
+    100k-cycle UVM default.  Add a bounded budget only when the testlist/CLI did
+    not already set one, so explicit per-test budgets keep precedence.
+    """
+    sim_opts = (sim_opts or "").strip()
+    instr_cnt = _plusarg_int(test_entry.get("gen_opts", ""), "instr_cnt")
+    if not instr_cnt:
+        return sim_opts
+
+    pieces = [sim_opts] if sim_opts else []
+    cycles = max(100_000, instr_cnt * 50)
+    if "+max_cycles=" not in sim_opts:
+        pieces.append("+max_cycles={}".format(cycles))
+    if "+timeout_ns=" not in sim_opts:
+        pieces.append("+timeout_ns={}".format(cycles * 100))
+    return " ".join(piece for piece in pieces if piece)
+
+
+def sim_process_timeout_s(sim_opts: str) -> int:
+    """Return a wall-clock timeout for the RTL subprocess."""
+    cycles = _plusarg_int(sim_opts, "max_cycles")
+    if not cycles:
+        return 1800
+    return max(1800, int(cycles / 500) + 300)
 
 
 def add_rvvi_elf_sim_opt(sim_opts: str, binary: str) -> str:
@@ -180,6 +222,8 @@ def uses_trace_compare(test_entry: dict) -> bool:
     asynchronous interrupt/debug delivery may opt out, and the testlist entry
     must document the alternate UVM-agent/signature checker in tracecmp_bypass.
     """
+    if str(test_entry.get("cosim", "enabled")).lower() == "rtl_only":
+        return False
     return str(test_entry.get("tracecmp", "enabled")).lower() != "disabled"
 
 
@@ -232,7 +276,8 @@ def run_trace_compare(work_dir: str, binary: str, nhart: int = 1) -> bool:
     ref_csv = os.path.join(work_dir, "ref_trace.csv")
     ref_schedule = os.path.join(work_dir, "ref_hart_schedule.txt")
     compare_log = os.path.join(work_dir, "trace_compare.log")
-    rvviref_exe = os.path.join(EH2_ROOT, "build", "rvviref", "spike_rvvi_main")
+    rvviref_target = os.path.join("build", "rvviref", "spike_rvvi_main")
+    rvviref_exe = os.path.join(EH2_ROOT, rvviref_target)
 
     root, ext = os.path.splitext(binary)
     elf_path = root + ".elf" if ext in (".hex", ".bin") else binary + ".elf"
@@ -258,7 +303,7 @@ def run_trace_compare(work_dir: str, binary: str, nhart: int = 1) -> bool:
         with open(compare_log, "w", encoding="utf-8") as log_f:
             log_f.write("ERROR: DUT hart schedule generation failed: {}\n".format(err))
         return False
-    build_ref = run_captured(["make", rvviref_exe], 300)
+    build_ref = run_captured(["make", rvviref_target], 300)
     if build_ref.returncode != 0:
         write_process_log(compare_log, build_ref)
         return False
@@ -397,9 +442,11 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
         binary = hex_path
 
     result.binary_path = binary
-    sim_opts = add_rvvi_elf_sim_opt(sim_opts, binary)
-    sim_opts = add_rvvi_trace_dump_sim_opts(
-        sim_opts, os.path.join(work_dir, "rvvi_trace.log"))
+    trace_compare_enabled = uses_trace_compare(test_entry)
+    if trace_compare_enabled:
+        sim_opts = add_rvvi_elf_sim_opt(sim_opts, binary)
+        sim_opts = add_rvvi_trace_dump_sim_opts(
+            sim_opts, os.path.join(work_dir, "rvvi_trace.log"))
     sim_opts = add_tracecmp_only_sim_opt(sim_opts)
 
     # Step 3: Run RTL simulation
@@ -417,6 +464,7 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
         "--sim-opts", sim_opts,
         "--build-dir", build_dir or os.path.join(EH2_ROOT, "build", "compile"),
         "--out-dir", work_dir,
+        "--process-timeout-s", str(sim_process_timeout_s(sim_opts)),
     ]
     if coverage:
         sim_cmd.append("--coverage")
@@ -424,7 +472,7 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
         sim_cmd.append("--waves")
 
     try:
-        proc = run_captured(sim_cmd, timeout=1800)
+        proc = run_captured(sim_cmd, timeout=sim_process_timeout_s(sim_opts) + 120)
         result.sim_time_sec = time.time() - sim_start
         result.sim_returncode = proc.returncode
     except subprocess.TimeoutExpired:
@@ -448,7 +496,7 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
     result.num_cycles = check_result.num_cycles
     result.ipc = check_result.ipc
 
-    if result.passed and uses_trace_compare(test_entry):
+    if result.passed and trace_compare_enabled:
         if not run_trace_compare(work_dir, binary, rvvi_nhart_from_sim_opts(sim_opts)):
             result.passed = False
             result.failure_mode = "TRACECMP_MISMATCH"

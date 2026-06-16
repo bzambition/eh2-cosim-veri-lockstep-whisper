@@ -16,6 +16,8 @@ namespace {
 
 constexpr uint32_t kDefaultRamBase = 0x80000000u;
 constexpr size_t kDefaultRamSize = 256u * 1024u * 1024u;
+constexpr uint32_t kDefaultLowZeroBase = 0x00000000u;
+constexpr size_t kDefaultLowZeroSize = 4u * 1024u;
 constexpr uint32_t kDefaultMailboxBase = 0xd0580000u;
 constexpr size_t kDefaultMailboxSize = 4u * 1024u;
 constexpr uint32_t kDefaultDccmBase = 0xf0040000u;
@@ -180,6 +182,10 @@ extern "C" bool_t rvviRefInit(const char *programPath) {
         "", kDefaultPmpRegions, kDefaultPmpGranularity,
         kDefaultMhpmCounters, g_config_num_harts);
     g_ref->add_memory(kDefaultRamBase, kDefaultRamSize);
+    // EH2's sparse AXI IFU memory returns zero for uninitialized low
+    // addresses, so jumps into the blank zero page retire as illegal
+    // 0x00000000 instructions rather than instruction access faults.
+    g_ref->add_memory(kDefaultLowZeroBase, kDefaultLowZeroSize);
     g_ref->add_memory(kDefaultMailboxBase, kDefaultMailboxSize);
     g_ref->add_memory(kDefaultDccmBase, kDefaultDccmSize);
 

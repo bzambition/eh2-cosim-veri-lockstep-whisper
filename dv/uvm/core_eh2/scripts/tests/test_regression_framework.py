@@ -99,6 +99,74 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertEqual(sim_opts, "")
         self.assertNotIn("+disable_" + "cosim=1", sim_opts)
 
+    def test_mailbox_accepts_riscv_dv_status_codes(self):
+        tb_top = (
+            SCRIPT_DIR.parent / "tb" / "core_eh2_tb_top.sv"
+        ).read_text(encoding="utf-8")
+        base_test = (
+            SCRIPT_DIR.parent / "tests" / "core_eh2_base_test.sv"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("mailbox_data[31:0] == 32'h0000_0002", tb_top)
+        self.assertIn("mailbox_data[31:0] == 32'h0000_0003", tb_top)
+        self.assertNotIn("mailbox_data[7:0] == 8'h02", tb_top)
+        self.assertNotIn("mailbox_data[7:0] == 8'h03", tb_top)
+        self.assertIn("tb_vif.mailbox_data[31:0] == TEST_PASS",
+                      base_test)
+        self.assertIn("tb_vif.mailbox_data[31:0] == TEST_FAIL",
+                      base_test)
+        self.assertIn("if (tb_vif != null && tb_vif.mailbox_test_done)",
+                      base_test)
+        self.assertIn('`uvm_info(test_name, "TEST PASSED (signature)", UVM_LOW)',
+                      base_test)
+
+    def test_mailbox_monitor_uses_committed_lsu_store_trace(self):
+        tb_top = (
+            SCRIPT_DIR.parent / "tb" / "core_eh2_tb_top.sv"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("assign mailbox_trace_write = lsu_trace_store_write;",
+                      tb_top)
+        self.assertIn("assign mailbox_trace_addr  = lsu_trace_store_addr;",
+                      tb_top)
+        self.assertIn("assign mailbox_trace_data  = {32'b0, lsu_trace_store_wdata};",
+                      tb_top)
+        self.assertIn("assign mailbox_axi_write = lsu_axi_awvalid && lsu_axi_awready;",
+                      tb_top)
+        self.assertIn("assign mailbox_write = mailbox_trace_write || mailbox_axi_write;",
+                      tb_top)
+        self.assertIn("fallback for any early external signature writes",
+                      tb_top)
+        self.assertIn("if (rst_l && !mailbox_test_done)", tb_top)
+
+    def test_riscvdv_instr_count_adds_bounded_runtime_budget(self):
+        entry = {
+            "test": "riscv_rand_jump_test",
+            "rtl_test": "core_eh2_base_test",
+            "gen_opts": "+instr_cnt=15000 +boot_mode=m",
+            "sim_opts": "+enable_irq_seq=1",
+        }
+
+        sim_opts = run_regress.build_sim_opts(entry, "")
+
+        self.assertIn("+enable_irq_seq=1", sim_opts)
+        self.assertIn("+max_cycles=750000", sim_opts)
+        self.assertIn("+timeout_ns=75000000", sim_opts)
+
+    def test_riscvdv_instr_count_preserves_explicit_runtime_budget(self):
+        entry = {
+            "test": "riscv_random_instr_test",
+            "rtl_test": "core_eh2_base_test",
+            "gen_opts": "+instr_cnt=20000 +boot_mode=m",
+            "sim_opts": "+max_cycles=2000000 +timeout_ns=200000000",
+        }
+
+        sim_opts = run_regress.build_sim_opts(entry, "")
+
+        self.assertIn("+max_cycles=2000000", sim_opts)
+        self.assertIn("+timeout_ns=200000000", sim_opts)
+        self.assertNotIn("+max_cycles=1000000", sim_opts)
+
     def test_rvvi_sim_opts_adds_matching_elf_path_by_default(self):
         sim_opts = run_regress.add_rvvi_elf_sim_opt(
             "",
@@ -273,6 +341,24 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("+timeout_ns=12345", cmd)
         self.assertNotIn("cd /tmp/eh2-build", cmd)
 
+    def test_run_rtl_promotes_sim_opts_timeout_to_template_timeout(self):
+        md = RegressionMetadata()
+        md.test_name = "long_random"
+        md.seed = 10
+        md.binary_path = "/tmp/long_random.hex"
+        md.simulator = "vcs"
+        md.rtl_test = "core_eh2_base_test"
+        md.sim_opts = "+max_cycles=2000000 +timeout_ns=200000000"
+        md.build_dir = str(Path("/tmp/eh2-build"))
+        md.out_dir = str(Path("/tmp/eh2-out"))
+        md.sim_time_ns = 10000000
+
+        cfg_path = Path(run_rtl.__file__).resolve().parents[1] / "yaml" / "rtl_simulation.yaml"
+        cmd = run_rtl.build_sim_cmd(md, run_rtl.load_sim_config(str(cfg_path)))
+
+        self.assertNotIn("+timeout_ns=10000000", cmd)
+        self.assertIn("+timeout_ns=200000000", cmd)
+
     def test_vcs_waves_enable_verdi_uvm_hierarchy_recording(self):
         md = RegressionMetadata()
         md.test_name = "smoke"
@@ -334,6 +420,48 @@ class RegressionFrameworkTest(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             self.assertEqual(result.sim_log_path,
                              str(out_dir / "sim_smoke_1.log"))
+
+    def test_run_rtl_derives_shell_timeout_from_max_cycles(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            build_dir = root / "build"
+            out_dir = root / "out"
+            yaml_dir = root / "dv" / "uvm" / "core_eh2" / "yaml"
+            build_dir.mkdir()
+            yaml_dir.mkdir(parents=True)
+            (build_dir / "simv").write_text("#!/bin/sh\n", encoding="utf-8")
+            (yaml_dir / "rtl_simulation.yaml").write_text(
+                "vcs:\n"
+                "  sim:\n"
+                "    cmd: >\n"
+                "      <build_dir>/simv +bin=<binary> +seed=<seed>\n"
+                "      <sim_opts> -l <out_dir>/sim_<test>_<seed>.log\n",
+                encoding="utf-8")
+
+            md = RegressionMetadata()
+            md.test_name = "long_random"
+            md.seed = 1
+            md.binary_path = "/tmp/long_random.hex"
+            md.simulator = "vcs"
+            md.build_dir = str(build_dir)
+            md.out_dir = str(out_dir)
+            md.eh2_root = str(root)
+            md.sim_opts = "+max_cycles=2000000"
+
+            calls = []
+
+            def fake_run(cmd, log_path, timeout=3600, env=None):
+                calls.append((cmd, log_path, timeout))
+                del cmd, timeout, env
+                Path(log_path).write_text("TEST PASSED (signature)\n",
+                                          encoding="utf-8")
+                return 0
+
+            with mock.patch.object(run_rtl, "run_command", fake_run):
+                result = run_rtl.run_rtl_simulation(md)
+
+            self.assertTrue(result.passed)
+            self.assertGreaterEqual(calls[0][2], 4300)
 
     def test_run_rtl_requires_pass_signature_even_with_zero_returncode(self):
         with tempfile.TemporaryDirectory() as td:
@@ -659,6 +787,80 @@ class RegressionFrameworkTest(unittest.TestCase):
             self.assertIn("+require_signature_addr=1", sim_opts)
             self.assertIn("+signature_addr=d0580000", sim_opts)
 
+    def test_run_instr_gen_keeps_stack_pointer_fixed_for_trap_recovery(self):
+        sim_opts = run_instr_gen.build_sim_opts()
+
+        self.assertIn("+fix_sp=1", sim_opts)
+
+    def test_run_instr_gen_uses_hardware_trigger_rom_for_debug_triggers(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            riscv_dv = root / "riscv-dv"
+            work_dir = root / "work"
+            riscv_dv.mkdir()
+            (riscv_dv / "run.py").write_text("#!/usr/bin/env python3\n",
+                                             encoding="utf-8")
+            captured = {}
+
+            class FakeProc:
+                returncode = 0
+                stdout = b""
+
+            def fake_run(cmd, stdout, stderr, timeout, cwd):
+                del stdout, stderr, timeout, cwd
+                captured["cmd"] = cmd
+                return FakeProc()
+
+            with mock.patch.object(run_instr_gen.subprocess, "run", fake_run):
+                ok = run_instr_gen.run_instr_gen(
+                    str(riscv_dv), str(work_dir),
+                    "riscv_debug_triggers_test", "", 1)
+
+            self.assertTrue(ok)
+            sim_opts = captured["cmd"][captured["cmd"].index("--sim_opts") + 1]
+            self.assertIn(
+                "+uvm_set_inst_override=riscv_asm_program_gen,"
+                "eh2_hardware_triggers_asm_program_gen,uvm_test_top.asm_gen",
+                sim_opts)
+
+            user_extension = (
+                SCRIPT_DIR.parent / "riscv_dv_extension" /
+                "user_extension.svh").read_text(encoding="utf-8")
+            self.assertIn('`include "eh2_debug_triggers_overrides.sv"',
+                          user_extension)
+
+    def test_debug_triggers_uses_self_contained_hardware_trigger_stream(self):
+        """Hardware trigger stimulus must not depend on a racy early HALTREQ."""
+        with open(SCRIPT_DIR.parent / "riscv_dv_extension" /
+                  "testlist.yaml", encoding="utf-8") as fd:
+            tests = yaml.safe_load(fd)
+
+        debug_triggers = next(
+            test for test in tests
+            if test["test"] == "riscv_debug_triggers_test")
+        self.assertEqual(debug_triggers["rtl_test"], "core_eh2_base_test")
+        self.assertIn("eh2_hardware_trigger_stream",
+                      debug_triggers["gen_opts"])
+        self.assertNotIn("+enable_debug_seq=1",
+                         debug_triggers.get("sim_opts", ""))
+
+        triggers = (
+            SCRIPT_DIR.parent / "riscv_dv_extension" /
+            "eh2_debug_triggers_overrides.sv"
+        ).read_text(encoding="utf-8")
+        self.assertIn("class eh2_hardware_trigger_stream", triggers)
+        self.assertIn("hardware_trigger_target_", triggers)
+        self.assertIn("EH2_TRIGGER_EXECUTE_BREAKPOINT", triggers)
+        self.assertIn("TDATA1", triggers)
+        self.assertIn("TDATA2", triggers)
+        self.assertIn("instr.rs1 = cfg.gpr[1];", triggers)
+        self.assertIn("CSRRSI", triggers)
+        self.assertIn("CSRRCI", triggers)
+        self.assertIn("MSTATUS", triggers)
+        self.assertIn("virtual function void gen_ebreak_handler", triggers)
+        self.assertIn("mret", triggers)
+        self.assertNotIn("EBREAK_EXCEPTION", triggers)
+
     def test_riscv_dv_setting_uses_current_riscv_dv_types(self):
         setting = (SCRIPT_DIR.parent / "riscv_dv_extension" /
                    "riscv_core_setting.sv").read_text(encoding="utf-8")
@@ -692,6 +894,49 @@ class RegressionFrameworkTest(unittest.TestCase):
                          program_gen)
         self.assertIn('instr_stream.push_back({indent, "j main"});',
                       program_gen)
+
+    def test_eh2_asm_program_gen_keeps_trap_stack_in_mscratch(self):
+        program_gen = (SCRIPT_DIR.parent / "riscv_dv_extension" /
+                       "eh2_asm_program_gen.sv").read_text(encoding="utf-8")
+
+        self.assertIn("virtual function void pre_enter_privileged_mode(int hart);",
+                      program_gen)
+        self.assertIn("super.pre_enter_privileged_mode(hart);", program_gen)
+        self.assertIn("eh2_kernel_sp", program_gen)
+        self.assertIn('"sw x%0d, 0(x%0d) # save EH2 KSP"', program_gen)
+        self.assertIn("virtual function void gen_trap_handler_section", program_gen)
+        self.assertIn("lw x%0d, 0(x%0d) # restore EH2 KSP",
+                      program_gen)
+        self.assertIn("save_next_kernel_sp", program_gen)
+        self.assertIn("super.gen_trap_handler_section", program_gen)
+
+    def test_eh2_asm_program_gen_skips_recoverable_access_faults(self):
+        program_gen = (SCRIPT_DIR.parent / "riscv_dv_extension" /
+                       "eh2_asm_program_gen.sv").read_text(encoding="utf-8")
+
+        self.assertIn("function void append_skip_faulting_insn", program_gen)
+        for handler in ("gen_instr_fault_handler", "gen_load_fault_handler",
+                        "gen_store_fault_handler"):
+            self.assertIn("virtual function void {}(int hart);".format(handler),
+                          program_gen)
+        self.assertGreaterEqual(program_gen.count("append_skip_faulting_insn(instr);"),
+                                3)
+        self.assertIn('"csrr t0, mepc"', program_gen)
+        self.assertIn('"addi t0, t0, 4"', program_gen)
+        self.assertIn('"csrw mepc, t0"', program_gen)
+
+    def test_eh2_asm_program_gen_does_not_random_write_mepc(self):
+        program_gen = (SCRIPT_DIR.parent / "riscv_dv_extension" /
+                       "eh2_asm_program_gen.sv").read_text(encoding="utf-8")
+        whitelist = re.search(
+            r"default_include_csr_write\.delete\(\);(?P<body>.*?)super\.gen_program\(\);",
+            program_gen,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(whitelist)
+        self.assertNotIn("MEPC", whitelist.group("body"))
+        self.assertNotIn("MSCRATCH", whitelist.group("body"))
 
     def test_base_test_installs_eh2_report_server(self):
         base_test = (SCRIPT_DIR.parent / "tests" /
@@ -1071,6 +1316,44 @@ class RegressionFrameworkTest(unittest.TestCase):
             sim_opts = rtl_cmd[rtl_cmd.index("--sim-opts") + 1]
             self.assertIn("+tracecmp_only", sim_opts)
 
+    def test_run_single_test_passes_sized_process_timeout_to_run_rtl(self):
+        with tempfile.TemporaryDirectory() as td:
+            out_dir = Path(td)
+            entry = {
+                "test": "smoke",
+                "rtl_test": "core_eh2_base_test",
+                "sim_opts": "+max_cycles=2000000",
+                "cosim": "disabled",
+                "tracecmp": "disabled",
+            }
+            sim_log = out_dir / "smoke_s1" / "sim_smoke_1.log"
+            seen = []
+
+            class FakeProc:
+                returncode = 0
+                stdout = b"rtl passed"
+                stderr = b""
+
+            def fake_run(cmd, **kwargs):
+                seen.append((cmd, kwargs))
+                sim_log.parent.mkdir(parents=True, exist_ok=True)
+                sim_log.write_text("TEST PASSED\n", encoding="utf-8")
+                return FakeProc()
+
+            with mock.patch.object(run_regress.subprocess, "run", fake_run):
+                result = run_regress.run_single_test(
+                    entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
+
+            self.assertTrue(result.passed)
+            rtl_calls = [(cmd, kwargs) for cmd, kwargs in seen
+                         if cmd[1].endswith("run_rtl.py")]
+            self.assertEqual(len(rtl_calls), 1)
+            rtl_cmd, rtl_kwargs = rtl_calls[0]
+            self.assertIn("--process-timeout-s", rtl_cmd)
+            proc_timeout = int(rtl_cmd[rtl_cmd.index("--process-timeout-s") + 1])
+            self.assertGreaterEqual(proc_timeout, 4300)
+            self.assertGreaterEqual(rtl_kwargs["timeout"], proc_timeout + 120)
+
     def test_run_single_test_runs_trace_compare_after_rtl_pass(self):
         with tempfile.TemporaryDirectory() as td:
             out_dir = Path(td)
@@ -1130,6 +1413,75 @@ class RegressionFrameworkTest(unittest.TestCase):
 
             self.assertTrue(result.passed)
             cmp_mock.assert_not_called()
+
+    def test_run_single_test_skips_trace_compare_for_rtl_only_test(self):
+        with tempfile.TemporaryDirectory() as td:
+            out_dir = Path(td)
+            entry = {
+                "test": "riscv_mem_intg_error_test",
+                "rtl_test": "core_eh2_mem_intg_error_test",
+                "cosim": "rtl_only",
+            }
+            sim_log = out_dir / "riscv_mem_intg_error_test_s1" / "sim_riscv_mem_intg_error_test_1.log"
+            seen_cmds = []
+
+            class FakeProc:
+                returncode = 0
+                stdout = b"rtl passed"
+                stderr = b""
+
+            def fake_run(cmd, **kwargs):
+                del kwargs
+                seen_cmds.append(cmd)
+                sim_log.parent.mkdir(parents=True, exist_ok=True)
+                sim_log.write_text("TEST PASSED\n", encoding="utf-8")
+                return FakeProc()
+
+            with mock.patch.object(run_regress.subprocess, "run", fake_run):
+                with mock.patch.object(run_regress, "run_trace_compare",
+                                       return_value=False) as cmp_mock:
+                    result = run_regress.run_single_test(
+                        entry, 1, "vcs", str(out_dir), "tests/asm/intg.hex")
+
+            self.assertTrue(result.passed)
+            cmp_mock.assert_not_called()
+            rtl_cmd = [cmd for cmd in seen_cmds if cmd[1].endswith("run_rtl.py")][0]
+            sim_opts = rtl_cmd[rtl_cmd.index("--sim-opts") + 1]
+            self.assertIn("+tracecmp_only", sim_opts)
+            self.assertNotIn("+rvvi_trace_dump", sim_opts)
+
+    def test_run_rtl_direct_mode_does_not_add_rvvi_dump_without_rvvi_elf(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            binary = root / "test.hex"
+            out_dir = root / "out"
+            binary.write_text("@80000000\n13 00 00 00\n", encoding="utf-8")
+            captured = {}
+
+            def fake_run(md):
+                captured["md"] = md
+                trr = TestRunResult()
+                trr.test_name = md.test_name
+                trr.seed = md.seed
+                trr.passed = True
+                trr.failure_mode = "NONE"
+                trr.sim_log_path = str(Path(md.out_dir) / "sim_rtl_only_1.log")
+                return trr
+
+            with mock.patch.object(run_rtl, "run_rtl_simulation", fake_run):
+                rc = run_rtl.main([
+                    "--test", "rtl_only",
+                    "--seed", "1",
+                    "--binary", str(binary),
+                    "--simulator", "vcs",
+                    "--rtl-test", "core_eh2_base_test",
+                    "--sim-opts", "+max_cycles=250000",
+                    "--out-dir", str(out_dir),
+                ])
+
+            self.assertEqual(rc, 0)
+            self.assertNotIn("+rvvi_trace_dump", captured["md"].sim_opts)
+            self.assertNotIn("+rvvi_trace_file=", captured["md"].sim_opts)
 
     def test_run_single_test_fails_when_trace_compare_fails(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1197,6 +1549,8 @@ class RegressionFrameworkTest(unittest.TestCase):
 
             self.assertTrue(result)
             cmp_mock.assert_called_once()
+            self.assertEqual(seen_cmds[0],
+                             ["make", "build/rvviref/spike_rvvi_main"])
             self.assertEqual(seen_cmds[-1][-2], "1")
             self.assertTrue(seen_cmds[-1][-1].endswith("ref_hart_schedule.txt"))
             compare_log = work_dir / "trace_compare.log"
@@ -2045,6 +2399,41 @@ class RegressionFrameworkTest(unittest.TestCase):
         ]:
             self.assertIn(target, makefile_text)
 
+    def test_make_regress_default_uses_testlist_iterations(self):
+        """P4.6 full regress must not silently cap riscvdv to one seed."""
+        root = SCRIPT_DIR.parents[3]
+        makefile = (root / "Makefile").read_text(encoding="utf-8")
+
+        self.assertRegex(makefile, r"(?m)^ITERATIONS\s+\?=\s*$")
+        self.assertIn("$(if $(ITERATIONS),--iterations $(ITERATIONS),)",
+                      makefile)
+        self.assertNotIn("--iterations $(ITERATIONS) --parallel", makefile)
+
+    def test_make_signoff_default_allows_tracked_skip_items(self):
+        """Bare full signoff should pass with only tracked skip_in_signoff tests."""
+        root = SCRIPT_DIR.parents[3]
+        makefile = (root / "Makefile").read_text(encoding="utf-8")
+
+        self.assertRegex(
+            makefile,
+            r"(?m)^SIGNOFF_OPTS\s+\?=\s+--no-fail-on-skip-in-signoff$")
+        self.assertIn("$(SIGNOFF_OPTS)", makefile)
+
+    def test_spike_ref_elf_loader_uses_section_vmas(self):
+        """RVVI ref memory must match the VMA-addressed RTL hex image."""
+        root = SCRIPT_DIR.parents[3]
+        cosim = (root / "dv" / "cosim" /
+                 "spike_cosim.cc").read_text(encoding="utf-8")
+
+        self.assertIn("load_elf_sections_at_vma", cosim)
+        self.assertIn("sh_addr", cosim)
+        self.assertIn("SHF_ALLOC", cosim)
+        self.assertIn("SHT_NOBITS", cosim)
+        self.assertIn("backdoor_write_mem(static_cast<uint32_t>(section_addr)",
+                      cosim)
+        self.assertNotIn("(void)load_elf(elf_path.c_str(), &memif, &entry);",
+                         cosim)
+
     def test_metadata_supports_ibex_style_create_metadata_op(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -2747,6 +3136,24 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("CSR_MEPC", cosim)
         self.assertIn("CSR_MCAUSE", cosim)
         self.assertIn("CSR_MTVAL", cosim)
+
+    def test_spike_cosim_allows_fetch_faults_to_become_ref_traps(self):
+        cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                 "spike_cosim.cc").read_text(encoding="utf-8")
+
+        self.assertIn("fetch_fault_candidate", cosim)
+        self.assertIn("Allow Spike to turn the fetch miss into an architectural trap", cosim)
+        self.assertNotIn("failed to read instruction at PC", cosim)
+
+    def test_rvvi_ref_model_maps_eh2_low_zero_page_for_illegal_fetches(self):
+        """EH2 external IFU returns zero data for low blank addresses."""
+        rvvi = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                "spike_rvvi.cc").read_text(encoding="utf-8")
+
+        self.assertIn("kDefaultLowZeroBase", rvvi)
+        self.assertIn("0x00000000u", rvvi)
+        self.assertIn("kDefaultLowZeroSize", rvvi)
+        self.assertIn("g_ref->add_memory(kDefaultLowZeroBase", rvvi)
 
     def test_spike_cosim_records_host_backed_atomic_memory_writes(self):
         cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /

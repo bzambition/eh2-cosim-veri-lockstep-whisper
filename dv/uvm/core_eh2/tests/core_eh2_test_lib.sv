@@ -1782,7 +1782,6 @@ class core_eh2_debug_ebreakmu_test extends core_eh2_base_test;
 
 endclass
 
-// ---------------------------------------------------------------------------
 // Single Debug Pulse Test - Single debug request pulse
 // Verifies behavior with a single short debug request pulse.
 // ---------------------------------------------------------------------------

@@ -6,3 +6,4 @@
 
 `include "eh2_asm_program_gen.sv"
 `include "eh2_directed_instr_lib.sv"
+`include "eh2_debug_triggers_overrides.sv"

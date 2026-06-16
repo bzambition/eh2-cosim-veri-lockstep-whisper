@@ -9,12 +9,15 @@
 
 #include <cassert>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
 
+#include "fesvr/byteorder.h"
+#include "fesvr/elf.h"
 #include "fesvr/elfloader.h"
 #include "fesvr/memif.h"
 #include "riscv/config.h"
@@ -25,6 +28,10 @@
 #include "riscv/mmu.h"
 #include "riscv/processor.h"
 #include "riscv/simif.h"
+
+#ifndef SHF_ALLOC
+#define SHF_ALLOC 0x2
+#endif
 
 namespace {
 
@@ -156,6 +163,156 @@ void record_ref_mem_write_if_changed(SpikeCosim &cosim,
   write.data = value_after;
   write.be = 0xf;
   writes.push_back(write);
+}
+
+template <typename T>
+T elf_bswap(bool little_endian, T value) {
+  return little_endian ? from_le(value) : from_be(value);
+}
+
+bool load_elf_bytes(const std::string &elf_path, std::vector<uint8_t> &data,
+                    std::string &error) {
+  std::ifstream elf(elf_path, std::ios::binary | std::ios::ate);
+  if (!elf) {
+    error = "open failed";
+    return false;
+  }
+
+  std::streamsize size = elf.tellg();
+  if (size <= 0) {
+    error = "empty ELF";
+    return false;
+  }
+
+  data.resize(static_cast<size_t>(size));
+  elf.seekg(0, std::ios::beg);
+  if (!elf.read(reinterpret_cast<char *>(data.data()), size)) {
+    error = "read failed";
+    return false;
+  }
+  return true;
+}
+
+template <typename Ehdr, typename Shdr>
+bool load_elf_sections_at_vma_typed(SpikeCosim &cosim,
+                                    const std::vector<uint8_t> &data,
+                                    bool little_endian,
+                                    reg_t &entry,
+                                    std::string &error) {
+  if (data.size() < sizeof(Ehdr)) {
+    error = "ELF header is truncated";
+    return false;
+  }
+
+  const auto *eh = reinterpret_cast<const Ehdr *>(data.data());
+  entry = static_cast<reg_t>(elf_bswap(little_endian, eh->e_entry));
+
+  const uint64_t shoff = elf_bswap(little_endian, eh->e_shoff);
+  const uint16_t shnum = elf_bswap(little_endian, eh->e_shnum);
+  const uint16_t shentsize = elf_bswap(little_endian, eh->e_shentsize);
+  if (shnum == 0) {
+    error = "ELF has no section headers";
+    return false;
+  }
+  if (shentsize < sizeof(Shdr)) {
+    error = "ELF section header size is smaller than expected";
+    return false;
+  }
+  if (shoff > data.size() ||
+      (static_cast<uint64_t>(shnum) * shentsize) > data.size() - shoff) {
+    error = "ELF section header table extends past EOF";
+    return false;
+  }
+
+  bool loaded_any_section = false;
+  for (uint16_t idx = 0; idx < shnum; ++idx) {
+    const uint64_t sh_offset_in_file = shoff + static_cast<uint64_t>(idx) * shentsize;
+    const auto *sh = reinterpret_cast<const Shdr *>(data.data() + sh_offset_in_file);
+    const uint64_t section_type = elf_bswap(little_endian, sh->sh_type);
+    const uint64_t section_flags = elf_bswap(little_endian, sh->sh_flags);
+    const uint64_t section_addr = elf_bswap(little_endian, sh->sh_addr);
+    const uint64_t section_offset = elf_bswap(little_endian, sh->sh_offset);
+    const uint64_t section_size = elf_bswap(little_endian, sh->sh_size);
+
+    if (section_size == 0 || (section_flags & SHF_ALLOC) == 0) continue;
+    if (section_type == SHT_NOBITS) continue;
+    if (section_addr > UINT32_MAX) {
+      std::stringstream err;
+      err << "section VMA 0x" << std::hex << section_addr
+          << " is outside RV32 address space";
+      error = err.str();
+      return false;
+    }
+    if (section_offset > data.size() || section_size > data.size() - section_offset) {
+      error = "ELF section contents extend past EOF";
+      return false;
+    }
+
+    const auto *section_data = data.data() + section_offset;
+    if (!cosim.backdoor_write_mem(static_cast<uint32_t>(section_addr),
+                                  static_cast<size_t>(section_size),
+                                  section_data)) {
+      std::stringstream err;
+      err << "ELF VMA write outside SpikeCosim memory at 0x"
+          << std::hex << section_addr << " len=0x" << section_size;
+      error = err.str();
+      return false;
+    }
+    loaded_any_section = true;
+  }
+
+  if (!loaded_any_section) {
+    error = "ELF has no allocatable loadable sections";
+    return false;
+  }
+  return true;
+}
+
+bool load_elf_sections_at_vma(SpikeCosim &cosim,
+                              const std::string &elf_path,
+                              reg_t &entry,
+                              std::string &error) {
+  std::vector<uint8_t> data;
+  if (!load_elf_bytes(elf_path, data, error)) return false;
+
+  if (data.size() < sizeof(Elf64_Ehdr)) {
+    error = "ELF is too small";
+    return false;
+  }
+
+  const auto *eh64 = reinterpret_cast<const Elf64_Ehdr *>(data.data());
+  if (!IS_ELF(*eh64)) {
+    error = "not an ELF file";
+    return false;
+  }
+  if (!IS_ELF32(*eh64) && !IS_ELF64(*eh64)) {
+    error = "unsupported ELF class";
+    return false;
+  }
+  if (!IS_ELFLE(*eh64) && !IS_ELFBE(*eh64)) {
+    error = "unsupported ELF endianness";
+    return false;
+  }
+  if (!IS_ELF_EXEC(*eh64)) {
+    error = "ELF is not executable";
+    return false;
+  }
+  if (!IS_ELF_RISCV(*eh64) && !IS_ELF_EM_NONE(*eh64)) {
+    error = "ELF is not RISC-V";
+    return false;
+  }
+  if (!IS_ELF_VCURRENT(*eh64)) {
+    error = "unsupported ELF version";
+    return false;
+  }
+
+  const bool little_endian = IS_ELFLE(*eh64);
+  if (IS_ELF32(*eh64)) {
+    return load_elf_sections_at_vma_typed<Elf32_Ehdr, Elf32_Shdr>(
+        cosim, data, little_endian, entry, error);
+  }
+  return load_elf_sections_at_vma_typed<Elf64_Ehdr, Elf64_Shdr>(
+      cosim, data, little_endian, entry, error);
 }
 
 }  // namespace
@@ -1068,12 +1225,16 @@ unsigned int SpikeCosim::get_insn_cnt(int thread_id) {
 }
 
 bool SpikeCosim::ref_load_elf(const std::string &elf_path) {
-  SpikeCosimMemif chunk_if(*this);
-  memif_t memif(&chunk_if);
   reg_t entry = 0;
 
   try {
-    (void)load_elf(elf_path.c_str(), &memif, &entry);
+    std::string load_error;
+    if (!load_elf_sections_at_vma(*this, elf_path, entry, load_error)) {
+      std::stringstream err;
+      err << "Failed to load ELF '" << elf_path << "': " << load_error;
+      errors.emplace_back(err.str());
+      return false;
+    }
   } catch (const std::exception &e) {
     std::stringstream err;
     err << "Failed to load ELF '" << elf_path << "': " << e.what();
@@ -1104,27 +1265,20 @@ bool SpikeCosim::ref_event_step(int hart) {
   uint32_t pc = proc->get_state()->pc & 0xffffffff;
   uint16_t insn_16 = 0;
   uint32_t insn_32 = 0;
-  if (!backdoor_read_mem(pc, sizeof(insn_16),
-                         reinterpret_cast<uint8_t *>(&insn_16))) {
-    std::stringstream err;
-    err << "T" << hart << " failed to read instruction at PC 0x"
-        << std::hex << pc;
-    errors.emplace_back(err.str());
-    return false;
-  }
+  bool fetch_fault_candidate = !backdoor_read_mem(
+      pc, sizeof(insn_16), reinterpret_cast<uint8_t *>(&insn_16));
 
-  if ((insn_16 & 0x3) == 0x3) {
-    if (!backdoor_read_mem(pc, sizeof(insn_32),
-                           reinterpret_cast<uint8_t *>(&insn_32))) {
-      std::stringstream err;
-      err << "T" << hart << " failed to read 32-bit instruction at PC 0x"
-          << std::hex << pc;
-      errors.emplace_back(err.str());
-      return false;
+  if (!fetch_fault_candidate) {
+    if ((insn_16 & 0x3) == 0x3) {
+      fetch_fault_candidate = !backdoor_read_mem(
+          pc, sizeof(insn_32), reinterpret_cast<uint8_t *>(&insn_32));
+    } else {
+      insn_32 = insn_16;
     }
-  } else {
-    insn_32 = insn_16;
   }
+  // Allow Spike to turn the fetch miss into an architectural trap.  The
+  // previous pre-read failure path aborted standalone RVVI trace generation
+  // before Spike could update mcause/mepc/mtval for instruction access faults.
 
   ts.last_step_pc = pc;
   ts.ref_last_pc = pc;

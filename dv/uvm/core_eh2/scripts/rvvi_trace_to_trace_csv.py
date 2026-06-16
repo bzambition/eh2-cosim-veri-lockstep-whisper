@@ -33,6 +33,8 @@ ASYNC_LOOKAHEAD_RETIRES = 256
 LOAD_WRITEBACK_RETIRES = 256
 MEM_WRITE_RETIRES = 256
 CSR_WRITE_RETIRES = 256
+MAILBOX_ADDR = "d0580000"
+RISCV_DV_TEST_PASS = "00000002"
 _OLD_SYS_PATH = list(sys.path)
 try:
     sys.path.insert(0, RISCV_DV_SCRIPTS)
@@ -219,6 +221,14 @@ def _parse_mem_write(parts):
     addr, data, be = fields
     return hart, "{}:{}:{}".format(_norm_hex(addr), _norm_hex(data),
                                    be.strip().lower().replace("0x", ""))
+
+
+def _is_riscv_dv_test_pass_mem_write(mem_write):
+    fields = str(mem_write or "").split(":")
+    if len(fields) < 2:
+        return False
+    addr, data = fields[0], fields[1]
+    return _norm_hex(addr) == MAILBOX_ADDR and _norm_hex(data) == RISCV_DV_TEST_PASS
 
 
 def _parse_csr_write(parts):
@@ -496,29 +506,6 @@ def _find_waiting_async_row_by_rd_in_queues(pending_async, hart, source, rd):
     return None
 
 
-def _find_transfer_async_row(ordered_entries, pending_async, exact_row, hart,
-                             source, rd):
-    matches = []
-    seen = set()
-    for row in ordered_entries:
-        if (row is not exact_row and row["waiting"] and
-                not row.get("suppress_candidate") and row["hart"] == hart and
-                row["source"] == source and _row_accepts_async_rd(row, rd)):
-            matches.append(row)
-            seen.add(id(row))
-    for queue in pending_async.values():
-        for row in queue:
-            if (row is not exact_row and row["waiting"] and
-                    not row.get("suppress_candidate") and row["hart"] == hart and
-                    row["source"] == source and _row_accepts_async_rd(row, rd) and
-                    id(row) not in seen):
-                matches.append(row)
-                seen.add(id(row))
-    if matches:
-        return matches[0]
-    return None
-
-
 def _select_async_row_for_writeback(pending_async, ordered_entries, hart,
                                     source, rd, async_tag):
     had_key = False
@@ -526,14 +513,7 @@ def _select_async_row_for_writeback(pending_async, ordered_entries, hart,
         key = _tagged_key(hart, source, async_tag)
         exact_row, had_key = _consume_exact_async_row(pending_async, key, rd)
         if exact_row is not None:
-            if exact_row.get("suppress_candidate"):
-                transfer_row = _find_transfer_async_row(
-                    ordered_entries, pending_async, exact_row, hart, source,
-                    rd)
-                if transfer_row is not None:
-                    _finish_suppressed_async_row(exact_row)
-                    _remove_pending_async_row(pending_async, transfer_row)
-                    return transfer_row, had_key
+            exact_row["suppress_candidate"] = False
             return exact_row, had_key
 
     key = (hart, source, rd)
@@ -552,12 +532,14 @@ def _select_async_row_for_writeback(pending_async, ordered_entries, hart,
 def _suppress_older_async_rows(ordered_entries, pending_async, hart, rd):
     for row in ordered_entries:
         if (row["waiting"] and row["hart"] == hart and row["rd"] == rd and
-                row["source"] in ("load", "div")):
+                row["source"] in ("load", "div") and
+                row.get("async_tag") is None):
             row["suppress_candidate"] = True
     for queue in pending_async.values():
         for row in queue:
             if (row["waiting"] and row["hart"] == hart and row["rd"] == rd and
-                    row["source"] in ("load", "div")):
+                    row["source"] in ("load", "div") and
+                    row.get("async_tag") is None):
                 row["suppress_candidate"] = True
 
 
@@ -616,7 +598,10 @@ def convert_rvvi_trace_fd(trace_fd, csv_fd):
     pending_csr_rows = defaultdict(deque)
     ordered_entries = deque()
     count = 0
+    stop_after_flush = False
     for raw_line in trace_fd:
+        if stop_after_flush:
+            break
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -638,6 +623,7 @@ def convert_rvvi_trace_fd(trace_fd, csv_fd):
             continue
         if parts[0] == "M":
             hart, mem_write = _parse_mem_write(parts)
+            is_test_pass = _is_riscv_dv_test_pass_mem_write(mem_write)
             while pending_mem_rows[hart]:
                 row = pending_mem_rows[hart].popleft()
                 if not row["waiting_mem"]:
@@ -646,6 +632,9 @@ def convert_rvvi_trace_fd(trace_fd, csv_fd):
                 row["waiting_mem"] = False
                 row["mem_ttl"] = 0
                 _flush_ready(trace_csv, ordered_entries)
+                if is_test_pass:
+                    _flush_all(trace_csv, ordered_entries)
+                    stop_after_flush = True
                 break
             else:
                 pending_mem[hart].append((mem_write, MEM_WRITE_RETIRES))
@@ -680,6 +669,7 @@ def convert_rvvi_trace_fd(trace_fd, csv_fd):
             "ttl": 0,
             "rd": None,
             "source": "",
+            "async_tag": None,
             "suppress_candidate": False,
             "waiting_mem": False,
             "mem_ttl": 0,
@@ -707,6 +697,8 @@ def convert_rvvi_trace_fd(trace_fd, csv_fd):
             pending_write = _consume_pending_mem(pending_mem, hart)
             if pending_write:
                 _append_entry_mem(entry, pending_write)
+                if _is_riscv_dv_test_pass_mem_write(pending_write):
+                    stop_after_flush = True
             else:
                 row["waiting_mem"] = True
                 row["mem_ttl"] = MEM_WRITE_RETIRES
@@ -719,6 +711,7 @@ def convert_rvvi_trace_fd(trace_fd, csv_fd):
                 row["source"] = source
                 tagged = _tagged_key(hart, source, async_tag[1]) if async_tag else None
                 if tagged:
+                    row["async_tag"] = async_tag[1]
                     key = tagged
                 pending_value = _consume_pending_value(pending_values, key)
                 if pending_value:
@@ -733,6 +726,9 @@ def convert_rvvi_trace_fd(trace_fd, csv_fd):
         ordered_entries.append(row)
         _flush_ready(trace_csv, ordered_entries)
         count += 1
+        if stop_after_flush:
+            _flush_all(trace_csv, ordered_entries)
+            break
 
     _flush_all(trace_csv, ordered_entries)
 

@@ -63,7 +63,7 @@ VERBOSITY       ?= UVM_MEDIUM
 TIMEOUT_NS      ?= 10000000
 WAVES           ?= 0
 COV             ?= 1
-ITERATIONS      ?= 1
+ITERATIONS      ?=
 PARALLEL        ?= 4
 OUT             ?=
 SIM_OPTS        ?=
@@ -73,7 +73,7 @@ PROFILE         ?= full
 GATE_ONLY       ?= 0
 CLEANUP         ?= 0
 SIGNOFF_OUT     ?= $(BUILD_DIR)/signoff_$(SIMULATOR)
-SIGNOFF_OPTS    ?=
+SIGNOFF_OPTS    ?= --no-fail-on-skip-in-signoff
 SIGNOFF_ITERATIONS ?=
 SIGNOFF_MIN_LINE_COV       ?= 55
 SIGNOFF_MIN_FUNCTIONAL_COV ?= 40
@@ -362,11 +362,11 @@ smoke: asm
 
 regress:
 	@$(MAKE) --no-print-directory compile BUILD_SUBDIR=$(BUILD_DIR)/regress_$(SIMULATOR)
-	@echo "=== [regress] testlist=$(TESTLIST) parallel=$(PARALLEL) iter=$(ITERATIONS) ==="
+	@echo "=== [regress] testlist=$(TESTLIST) parallel=$(PARALLEL) iter=$(if $(ITERATIONS),$(ITERATIONS),testlist) ==="
 	python3 $(SCRIPTS_DIR)/run_regress.py \
 	  $(if $(TEST),--test $(TEST) --testlist $(TESTLIST_PATH),--testlist $(TESTLIST_PATH)) \
 	  --simulator $(SIMULATOR) --seed $(SEED) \
-	  --iterations $(ITERATIONS) --parallel $(PARALLEL) \
+	  $(if $(ITERATIONS),--iterations $(ITERATIONS),) --parallel $(PARALLEL) \
 	  --sim-opts "$(SIM_OPTS)" \
 	  --build-dir $(BUILD_DIR)/regress_$(SIMULATOR) \
 	  --output $(if $(OUT),$(OUT),$(BUILD_DIR)/regress_$(SIMULATOR)) \

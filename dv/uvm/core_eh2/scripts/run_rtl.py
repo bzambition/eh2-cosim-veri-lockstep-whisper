@@ -7,6 +7,7 @@
 
 import argparse
 import os
+import re
 import sys
 import yaml
 import subprocess
@@ -55,6 +56,8 @@ def build_sim_cmd(md: RegressionMetadata, sim_cfg: dict) -> str:
     """Build the simulation command."""
     cfg = sim_cfg.get(md.simulator, sim_cfg.get("vcs", {}))
     sim_cfg_inner = cfg.get("sim", {})
+    sim_opts = md.sim_opts or ""
+    sim_timeout_ns = _plusarg_int(sim_opts, "timeout_ns")
 
     variables = {
         "build_dir": md.build_dir,
@@ -65,8 +68,9 @@ def build_sim_cmd(md: RegressionMetadata, sim_cfg: dict) -> str:
         "seed": md.seed,
         "binary": md.binary_path,
         "rtl_test": md.rtl_test or "core_eh2_base_test",
-        "sim_opts": md.sim_opts or "",
-        "timeout": md.sim_time_ns if md.sim_time_ns > 0 else 10000000,
+        "sim_opts": sim_opts,
+        "timeout": (sim_timeout_ns if sim_timeout_ns is not None else
+                    (md.sim_time_ns if md.sim_time_ns > 0 else 10000000)),
         "uvm_verbosity": "UVM_MEDIUM",
         "nc_uvm_home": os.environ.get(
             "NC_UVM_HOME",
@@ -90,6 +94,26 @@ def build_sim_cmd(md: RegressionMetadata, sim_cfg: dict) -> str:
     # shell command parsing (shell=True).
     cmd = " ".join(cmd.split())
     return cmd
+
+
+def _plusarg_int(text: str, name: str):
+    match = re.search(r"(?:^|\s)\+{}=(0x[0-9a-fA-F]+|\d+)(?:\s|$)".
+                      format(re.escape(name)), text or "")
+    if not match:
+        return None
+    try:
+        return int(match.group(1), 0)
+    except ValueError:
+        return None
+
+
+def sim_process_timeout_s(sim_opts: str, requested_timeout_s: int = 0) -> int:
+    if requested_timeout_s:
+        return requested_timeout_s
+    cycles = _plusarg_int(sim_opts, "max_cycles")
+    if not cycles:
+        return 600
+    return max(600, int(cycles / 500) + 300)
 
 
 def run_command(cmd: str, log_path: str, timeout: int = 3600,
@@ -179,7 +203,11 @@ def run_rtl_simulation(md: RegressionMetadata) -> TestRunResult:
         return trr
     trr.sim_cmd = sim_cmd
     sim_env = {**os.environ, "SIM_DIR": md.out_dir}
-    rc = run_command(sim_cmd, trr.sim_log_path, timeout=600, env=sim_env)
+    rc = run_command(
+        sim_cmd, trr.sim_log_path,
+        timeout=sim_process_timeout_s(
+            md.sim_opts, getattr(md, "process_timeout_s", 0)),
+        env=sim_env)
     trr.sim_returncode = rc
 
     # Parse results. A zero simulator return code is not sufficient for pass:
@@ -229,6 +257,12 @@ def add_rvvi_trace_dump_sim_opts(sim_opts: str, trace_path: Path) -> str:
     if "+rvvi_trace_file=" not in sim_opts:
         pieces.append("+rvvi_trace_file={}".format(trace_path))
     return " ".join(piece for piece in pieces if piece)
+
+
+def needs_rvvi_trace_defaults(sim_opts: str) -> bool:
+    return any(token in (sim_opts or "")
+               for token in ("+rvvi_elf=", "+rvvi_trace_dump",
+                             "+tracecmp_only"))
 
 
 def _directed_test_entry(md: RegressionMetadata, test_name: str) -> dict:
@@ -368,6 +402,8 @@ def main(argv=None) -> int:
     parser.add_argument("--sim-opts", default="", help="Simulation plusargs")
     parser.add_argument("--build-dir", default="", help="Build directory")
     parser.add_argument("--out-dir", default="", help="Output directory")
+    parser.add_argument("--process-timeout-s", type=int, default=0,
+                        help="Wall-clock timeout for simulator process")
     parser.add_argument("--dir-metadata", default="",
                         help="Ibex-style metadata directory")
     parser.add_argument("--test-dot-seed", default="",
@@ -404,6 +440,7 @@ def main(argv=None) -> int:
     md.waves = args.waves
     md.coverage = args.coverage
     md.sim_time_ns = args.timeout
+    md.process_timeout_s = args.process_timeout_s
     md.rtl_test = args.rtl_test
     if args.build_dir:
         md.build_dir = args.build_dir
@@ -412,8 +449,10 @@ def main(argv=None) -> int:
     trace_dir = Path(md.out_dir) if md.out_dir else \
         Path(md.eh2_root or str(EH2_ROOT)) / "build" / \
         "{}_{}".format(md.test_name, md.seed)
-    md.sim_opts = add_rvvi_trace_dump_sim_opts(
-        args.sim_opts, trace_dir / "rvvi_trace.log")
+    md.sim_opts = args.sim_opts
+    if needs_rvvi_trace_defaults(md.sim_opts):
+        md.sim_opts = add_rvvi_trace_dump_sim_opts(
+            md.sim_opts, trace_dir / "rvvi_trace.log")
 
     trr = run_rtl_simulation(md)
 

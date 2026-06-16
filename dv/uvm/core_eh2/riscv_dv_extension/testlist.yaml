@@ -518,11 +518,11 @@
 - test: riscv_debug_triggers_test
   description: Hardware breakpoint trigger test with directed breakpoint sequence — cosim enabled (issue 54)
   gen_test: riscv_instr_base_test
-  gen_opts: '+instr_cnt=10000 +boot_mode=m +directed_instr_0=eh2_breakpoint_stream,20
+  gen_opts: '+instr_cnt=10000 +boot_mode=m +directed_instr_0=eh2_hardware_trigger_stream,20
 
     '
-  rtl_test: core_eh2_single_debug_pulse_test
-  sim_opts: '+enable_debug_seq=1
+  rtl_test: core_eh2_base_test
+  sim_opts: '
 
     '
   cosim: enabled

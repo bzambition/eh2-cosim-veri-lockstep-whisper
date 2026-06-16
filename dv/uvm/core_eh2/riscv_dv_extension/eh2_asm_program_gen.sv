@@ -14,6 +14,8 @@ class eh2_asm_program_gen extends riscv_asm_program_gen;
 
   `uvm_object_utils(eh2_asm_program_gen)
 
+  localparam string EH2_KSP_LABEL = "eh2_kernel_sp";
+
   function new(string name = "");
     super.new(name);
   endfunction
@@ -26,8 +28,6 @@ class eh2_asm_program_gen extends riscv_asm_program_gen;
     default_include_csr_write.push_back(MSTATUS);
     default_include_csr_write.push_back(MIE);
     default_include_csr_write.push_back(MTVEC);
-    default_include_csr_write.push_back(MSCRATCH);
-    default_include_csr_write.push_back(MEPC);
     default_include_csr_write.push_back(MCAUSE);
     default_include_csr_write.push_back(MTVAL);
     default_include_csr_write.push_back(MCOUNTINHIBIT);
@@ -39,7 +39,6 @@ class eh2_asm_program_gen extends riscv_asm_program_gen;
     default_include_csr_write.push_back(PMPADDR2);
     default_include_csr_write.push_back(PMPADDR3);
     default_include_csr_write.push_back(PMPCFG0);
-
     super.gen_program();
   endfunction
 
@@ -59,6 +58,117 @@ class eh2_asm_program_gen extends riscv_asm_program_gen;
     instr_stream.push_back("csrw mstatus, t0");
   endfunction
 
+  // Keep the trap kernel-stack pointer in a memory slot. Random tests and
+  // riscv-dv interrupt helpers may freely modify cfg.tp/MSCRATCH, while the
+  // upstream push_gpr_to_kernel_stack() prologue expects cfg.tp to hold KSP.
+  virtual function void pre_enter_privileged_mode(int hart);
+    string instr[$];
+    string old_instr_stream[$];
+    string kernel_sp_label;
+    string slot_label;
+    super.pre_enter_privileged_mode(hart);
+
+    slot_label = get_label(EH2_KSP_LABEL, hart);
+    old_instr_stream = instr_stream;
+    instr_stream.delete();
+    instr = {
+      $sformatf("la x%0d, %0skernel_stack_end", cfg.tp, hart_prefix(hart)),
+      $sformatf("la x%0d, %0s", cfg.scratch_reg, slot_label),
+      $sformatf("sw x%0d, 0(x%0d) # save EH2 KSP", cfg.tp, cfg.scratch_reg)
+    };
+    gen_section(get_label("kernel_sp", hart), instr);
+    instr = instr_stream;
+    instr_stream = old_instr_stream;
+
+    kernel_sp_label = format_string(
+      $sformatf("%0s:", get_label("kernel_sp", hart)), LABEL_STR_LEN);
+    foreach (instr_stream[i]) begin
+      if (instr_stream[i] == kernel_sp_label) begin
+        instr_stream.delete(i);
+        instr_stream.delete(i);
+        foreach (instr[j]) begin
+          instr_stream.insert(i + j, instr[j]);
+        end
+        break;
+      end
+    end
+  endfunction
+
+  function void save_next_kernel_sp(int hart, ref string instr[$]);
+    string slot_label;
+    slot_label = get_label(EH2_KSP_LABEL, hart);
+    instr.push_back($sformatf("la x%0d, %0s", cfg.scratch_reg, slot_label));
+    instr.push_back($sformatf("sw x%0d, 0(x%0d) # save EH2 KSP", cfg.tp, cfg.scratch_reg));
+  endfunction
+
+  function void gen_eh2_kernel_sp_slot(int hart);
+    string instr[$];
+    instr = {
+      ".4byte 0x0"
+    };
+    gen_section(get_label(EH2_KSP_LABEL, hart), instr);
+  endfunction
+
+  virtual function void gen_trap_handler_section(int hart,
+                                                 string mode,
+                                                 privileged_reg_t cause,
+                                                 privileged_reg_t tvec,
+                                                 privileged_reg_t tval,
+                                                 privileged_reg_t epc,
+                                                 privileged_reg_t scratch,
+                                                 privileged_reg_t status,
+                                                 privileged_reg_t ie,
+                                                 privileged_reg_t ip);
+    string handler_label;
+    string save_done;
+    int unsigned insert_idx;
+    int unsigned save_idx;
+    bit inserted;
+    bit saved_after_push;
+
+    super.gen_trap_handler_section(hart, mode, cause, tvec, tval, epc,
+                                   scratch, status, ie, ip);
+
+    if (scratch != MSCRATCH) begin
+      return;
+    end
+
+    handler_label = get_label($sformatf("%0s_handler", tvec.name().tolower()), hart);
+    handler_label = format_string($sformatf("%0s:", handler_label), LABEL_STR_LEN);
+    foreach (instr_stream[i]) begin
+      if (instr_stream[i] == handler_label) begin
+        insert_idx = i + 1;
+        inserted = 1'b1;
+        break;
+      end
+    end
+
+    if (inserted) begin
+      instr_stream.insert(insert_idx,
+        $sformatf("%sla x%0d, %0s", indent, cfg.scratch_reg, get_label(EH2_KSP_LABEL, hart)));
+      instr_stream.insert(insert_idx + 1,
+        $sformatf("%slw x%0d, 0(x%0d) # restore EH2 KSP", indent, cfg.tp, cfg.scratch_reg));
+    end
+
+    save_done = $sformatf("%sadd x%0d, x%0d, zero", indent, cfg.tp, cfg.sp);
+    foreach (instr_stream[i]) begin
+      if (i <= insert_idx) begin
+        continue;
+      end
+      if (instr_stream[i] == save_done) begin
+        save_idx = i + 1;
+        saved_after_push = 1'b1;
+        break;
+      end
+    end
+    if (saved_after_push) begin
+      instr_stream.insert(save_idx,
+        $sformatf("%sla x%0d, %0s", indent, cfg.scratch_reg, get_label(EH2_KSP_LABEL, hart)));
+      instr_stream.insert(save_idx + 1,
+        $sformatf("%ssw x%0d, 0(x%0d) # save EH2 KSP", indent, cfg.tp, cfg.scratch_reg));
+    end
+  endfunction
+
   // Override ECALL handler: increment MEPC+4 and mret (do not end test)
   virtual function void gen_ecall_handler(int hart);
     string instr[$];
@@ -69,6 +179,65 @@ class eh2_asm_program_gen extends riscv_asm_program_gen;
       "mret"
     };
     gen_section(get_label("ecall_handler", hart), instr);
+  endfunction
+
+  function void append_skip_faulting_insn(ref string instr[$]);
+    instr = {instr,
+      "csrr t0, mepc",
+      "addi t0, t0, 4",
+      "csrw mepc, t0"
+    };
+  endfunction
+
+  virtual function void gen_instr_fault_handler(int hart);
+    string instr[$];
+    gen_signature_handshake(instr, CORE_STATUS, INSTR_FAULT_EXCEPTION);
+    gen_signature_handshake(.instr(instr), .signature_type(WRITE_CSR), .csr(MCAUSE));
+    if (cfg.pmp_cfg.enable_pmp_exception_handler) begin
+      cfg.pmp_cfg.gen_pmp_exception_routine({cfg.gpr, cfg.scratch_reg, cfg.pmp_reg[0],
+                                             cfg.pmp_reg[1]},
+                                            INSTRUCTION_ACCESS_FAULT,
+                                            instr);
+    end
+    append_skip_faulting_insn(instr);
+    pop_gpr_from_kernel_stack(MSTATUS, MSCRATCH, cfg.mstatus_mprv, cfg.sp, cfg.tp, instr);
+    save_next_kernel_sp(hart, instr);
+    instr.push_back("mret");
+    gen_section(get_label("instr_fault_handler", hart), instr);
+  endfunction
+
+  virtual function void gen_load_fault_handler(int hart);
+    string instr[$];
+    gen_signature_handshake(instr, CORE_STATUS, LOAD_FAULT_EXCEPTION);
+    gen_signature_handshake(.instr(instr), .signature_type(WRITE_CSR), .csr(MCAUSE));
+    if (cfg.pmp_cfg.enable_pmp_exception_handler) begin
+      cfg.pmp_cfg.gen_pmp_exception_routine({cfg.gpr, cfg.scratch_reg, cfg.pmp_reg[0],
+                                             cfg.pmp_reg[1]},
+                                            LOAD_ACCESS_FAULT,
+                                            instr);
+    end
+    append_skip_faulting_insn(instr);
+    pop_gpr_from_kernel_stack(MSTATUS, MSCRATCH, cfg.mstatus_mprv, cfg.sp, cfg.tp, instr);
+    save_next_kernel_sp(hart, instr);
+    instr.push_back("mret");
+    gen_section(get_label("load_fault_handler", hart), instr);
+  endfunction
+
+  virtual function void gen_store_fault_handler(int hart);
+    string instr[$];
+    gen_signature_handshake(instr, CORE_STATUS, STORE_FAULT_EXCEPTION);
+    gen_signature_handshake(.instr(instr), .signature_type(WRITE_CSR), .csr(MCAUSE));
+    if (cfg.pmp_cfg.enable_pmp_exception_handler) begin
+      cfg.pmp_cfg.gen_pmp_exception_routine({cfg.gpr, cfg.scratch_reg, cfg.pmp_reg[0],
+                                             cfg.pmp_reg[1]},
+                                            STORE_AMO_ACCESS_FAULT,
+                                            instr);
+    end
+    append_skip_faulting_insn(instr);
+    pop_gpr_from_kernel_stack(MSTATUS, MSCRATCH, cfg.mstatus_mprv, cfg.sp, cfg.tp, instr);
+    save_next_kernel_sp(hart, instr);
+    instr.push_back("mret");
+    gen_section(get_label("store_fault_handler", hart), instr);
   endfunction
 
   virtual function void gen_program_end(int hart);
@@ -101,6 +270,7 @@ class eh2_asm_program_gen extends riscv_asm_program_gen;
     init_eh2_custom_csr(hart);
     instr_stream.push_back({indent, "j main"});
     gen_nmi_handler(hart);
+    gen_eh2_kernel_sp_slot(hart);
   endfunction
 
   // Initialize EH2-specific CSRs

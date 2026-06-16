@@ -25,13 +25,18 @@ DEFAULT_TESTLIST = os.path.join(EXT_DIR, "testlist.yaml")
 EH2_SIGNATURE_ADDR = "d0580000"
 
 
-def build_sim_opts() -> str:
+def build_sim_opts(test_name: str = "") -> str:
     """Build riscv-dv generator simulator plusargs for EH2 customizations."""
+    asm_gen = "eh2_asm_program_gen"
+    if test_name == "riscv_debug_triggers_test":
+        asm_gen = "eh2_hardware_triggers_asm_program_gen"
+
     return " ".join([
         "+uvm_set_inst_override=riscv_asm_program_gen,"
-        "eh2_asm_program_gen,uvm_test_top.asm_gen",
+        f"{asm_gen},uvm_test_top.asm_gen",
         "+require_signature_addr=1",
         f"+signature_addr={EH2_SIGNATURE_ADDR}",
+        "+fix_sp=1",
     ])
 
 
@@ -107,7 +112,7 @@ def run_instr_gen(riscv_dv_dir: str, work_dir: str, test_name: str,
         "--isa", "rv32imac",
         "--mabi", "ilp32",
         "--testlist", testlist_path,
-        "--sim_opts", build_sim_opts(),
+        "--sim_opts", build_sim_opts(test_name),
     ]
 
     # Add custom extension

@@ -84,6 +84,37 @@ def test_atomic_memory_write_attaches_to_sc_not_later_store():
     assert rows[2]["operand"] == "hart=0;mem=d0580000:000000ff:f"
 
 
+def test_riscv_dv_test_pass_mailbox_stops_trace_before_epilogue_retire():
+    rows = _convert(
+        "0|0|80000000|00a12023|0|3|gpr=|csr=\n"
+        "M|0|d0580000:00000002:f\n"
+        "0|1|80000004|34151073|0|3|gpr=|csr=341:00000004\n")
+
+    assert len(rows) == 1
+    assert rows[0]["operand"] == "hart=0;mem=d0580000:00000002:f"
+
+
+def test_past_riscv_dv_test_pass_mailbox_stops_trace_at_matching_store():
+    rows = _convert(
+        "M|0|d0580000:00000002:f\n"
+        "0|0|80000000|00a12023|0|3|gpr=|csr=\n"
+        "0|1|80000004|34151073|0|3|gpr=|csr=341:00000004\n")
+
+    assert len(rows) == 1
+    assert rows[0]["operand"] == "hart=0;mem=d0580000:00000002:f"
+
+
+def test_riscv_dv_signature_words_with_pass_low_byte_do_not_stop_trace():
+    rows = _convert(
+        "0|0|80000000|00a12023|0|3|gpr=|csr=\n"
+        "M|0|d0580000:00030002:f\n"
+        "0|1|80000004|00000013|0|3|gpr=|csr=\n")
+
+    assert len(rows) == 2
+    assert rows[0]["operand"] == "hart=0;mem=d0580000:00030002:f"
+    assert rows[1]["pc"] == "80000004"
+
+
 def test_memory_write_queues_are_hart_specific():
     rows = _convert(
         "M|1|80001000:000000bb:1\n"
@@ -300,7 +331,7 @@ def test_untagged_load_writeback_is_not_attached_when_rd_is_ambiguous():
 
 def test_younger_gpr_write_marks_older_pending_async_write_suppressed():
     rows = _convert(
-        "0|0|80000000|00032a03|0|3|gpr=|csr=|tag=load:1\n"
+        "0|0|80000000|00032a03|0|3|gpr=|csr=\n"
         "0|1|80000004|00000a13|0|3|gpr=x20:00000000|csr=\n")
 
     assert rows[0]["gpr"] == ""
@@ -308,7 +339,7 @@ def test_younger_gpr_write_marks_older_pending_async_write_suppressed():
     assert rows[1]["gpr"] == "s4:00000000"
 
 
-def test_late_tagged_load_writeback_is_ignored_after_younger_gpr_write():
+def test_late_tagged_load_writeback_matches_exact_retire_after_younger_gpr_write():
     rows = _convert(
         "0|0|80000000|00032183|0|3|gpr=|csr=|tag=load:42\n"
         "0|1|80000004|024e11b3|0|3|gpr=x3:00000000|csr=\n"
@@ -316,10 +347,27 @@ def test_late_tagged_load_writeback_is_ignored_after_younger_gpr_write():
         "A|0|load|x3:0000b811|tag=42\n"
         "A|0|load|x3:00000000|tag=94\n")
 
-    assert rows[0]["gpr"] == ""
-    assert "suppress_gpr=gp" in rows[0]["operand"]
+    assert rows[0]["gpr"] == "gp:0000b811"
+    assert "suppress_gpr" not in rows[0]["operand"]
     assert rows[1]["gpr"] == "gp:00000000"
-    assert rows[2]["gpr"] == "gp:0000b811"
+    assert rows[2]["gpr"] == "gp:00000000"
+
+
+def test_late_exact_load_tag_is_not_transferred_to_younger_same_rd_load():
+    rows = _convert(
+        "0|0|80000000|00218283|0|3|gpr=|csr=|tag=load:543\n"
+        "0|1|80000004|00e1c283|0|3|gpr=|csr=|tag=load:544\n"
+        "0|2|80000008|00ee72b3|0|3|gpr=x5:00000072|csr=\n"
+        "0|3|8000000c|00f18283|0|3|gpr=|csr=|tag=load:545\n"
+        "A|0|load|x5:0000002d|tag=543\n"
+        "A|0|load|x5:000000c8|tag=544\n"
+        "A|0|load|x5:ffffffb4|tag=545\n")
+
+    assert rows[0]["gpr"] == "t0:0000002d"
+    assert rows[1]["gpr"] == "t0:000000c8"
+    assert rows[2]["gpr"] == "t0:00000072"
+    assert rows[3]["gpr"] == "t0:ffffffb4"
+    assert "suppress_gpr" not in rows[0]["operand"]
 
 
 def test_tagged_load_writeback_rejects_wrong_destination_register():

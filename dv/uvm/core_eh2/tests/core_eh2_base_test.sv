@@ -366,10 +366,16 @@ class core_eh2_base_test extends uvm_test;
       @(posedge tb_vif.clk);
       if (tb_vif.mailbox_test_done) begin
         // Check which event fired
-        if (tb_vif.mailbox_data[7:0] == 8'hFF) begin
+        if (tb_vif.mailbox_data[7:0] == 8'hFF ||
+            tb_vif.mailbox_data[31:0] == TEST_PASS) begin
           `uvm_info(test_name, "TEST PASSED (signature)", UVM_LOW)
-        end else begin
+        end else if (tb_vif.mailbox_data[7:0] == 8'h01 ||
+                     tb_vif.mailbox_data[31:0] == TEST_FAIL) begin
           `uvm_error(test_name, "TEST FAILED (signature)")
+        end else begin
+          `uvm_error(test_name,
+            $sformatf("Unexpected completion signature: 0x%02x",
+                      tb_vif.mailbox_data[7:0]))
         end
         // EH2 can retire the mailbox store before the external AXI write
         // response is observed. Leave a short drain window so monitors and
@@ -451,6 +457,15 @@ class core_eh2_base_test extends uvm_test;
   // =========================================================================
   function void report_phase(uvm_phase phase);
     super.report_phase(phase);
+    if (tb_vif != null && tb_vif.mailbox_test_done) begin
+      if (tb_vif.mailbox_data[7:0] == 8'hFF ||
+          tb_vif.mailbox_data[31:0] == TEST_PASS) begin
+        `uvm_info(test_name, "TEST PASSED (signature)", UVM_LOW)
+      end else if (tb_vif.mailbox_data[7:0] == 8'h01 ||
+                   tb_vif.mailbox_data[31:0] == TEST_FAIL) begin
+        `uvm_error(test_name, "TEST FAILED (signature)")
+      end
+    end
     `uvm_info(test_name, "========================================", UVM_LOW)
     `uvm_info(test_name, $sformatf("Test: %s", test_name), UVM_LOW)
     `uvm_info(test_name, $sformatf("ISA: %s", isa_string), UVM_LOW)

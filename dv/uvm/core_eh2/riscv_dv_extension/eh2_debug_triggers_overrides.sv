@@ -127,6 +127,135 @@ class eh2_hardware_triggers_asm_program_gen extends eh2_asm_program_gen;
     instr_stream = {instr_stream, debug_rom.instr_stream};
   endfunction
 
+  virtual function void gen_ebreak_handler(int hart);
+    string instr[$];
+
+    // EH2 ordinary execute triggers report mcause=BREAKPOINT in M-mode.  This
+    // directed test programs tdata2 to the following NOP; handle that breakpoint
+    // as expected stimulus, disable the trigger, and return to the same mepc so
+    // the target instruction retires once normally.
+    instr = {
+      $sformatf("csrrwi zero, 0x%0x, 0", TSELECT),
+      $sformatf("csrrw  zero, 0x%0x, x0", TDATA1),
+      $sformatf("csrrw  zero, 0x%0x, x0", TDATA2)
+    };
+    pop_gpr_from_kernel_stack(MSTATUS, MSCRATCH, cfg.mstatus_mprv,
+                              cfg.sp, cfg.tp, instr);
+    save_next_kernel_sp(hart, instr);
+    instr.push_back("mret");
+    gen_section(get_label("ebreak_handler", hart), instr);
+  endfunction
+
+endclass
+
+class eh2_hardware_trigger_stream extends eh2_base_directed_stream;
+
+  `uvm_object_utils(eh2_hardware_trigger_stream)
+
+  int unsigned eh2_trigger_idx = 0; // See [DbgHwBreakNum]
+  int unsigned stream_idx;
+  static int unsigned next_stream_idx;
+
+  localparam bit [31:0] EH2_TRIGGER_EXECUTE_BREAKPOINT = 32'h0000_0044;
+
+  function new(string name = "");
+    super.new(name);
+    stream_idx = next_stream_idx++;
+  endfunction
+
+  virtual function void gen_instr(bit no_branch = 1, bit no_load_store = 1,
+                                  bit is_debug_program = 0);
+    riscv_pseudo_instr la_instr;
+    riscv_pseudo_instr li_instr;
+    riscv_instr instr;
+    string target_label;
+
+    target_label = $sformatf("hardware_trigger_target_%0d", stream_idx);
+
+    la_instr = riscv_pseudo_instr::type_id::create("la_trigger_target");
+    la_instr.pseudo_instr_name = LA;
+    la_instr.rd = cfg.gpr[1];
+    la_instr.imm_str = target_label;
+    instr_list.push_back(la_instr);
+
+    instr = riscv_instr::get_instr(CSRRWI);
+    instr.csr = TSELECT;
+    instr.rd = ZERO;
+    instr.imm = eh2_trigger_idx;
+    instr.imm_str = $sformatf("0x%0x", eh2_trigger_idx);
+    instr_list.push_back(instr);
+
+    // WARL programming sequence from riscv-debug trigger register guidance:
+    // clear tdata1, write tdata2, then enable the trigger.
+    instr = riscv_instr::get_instr(CSRRW);
+    instr.csr = TDATA1;
+    instr.rd = ZERO;
+    instr.has_rs1 = 1;
+    instr.rs1 = ZERO;
+    instr_list.push_back(instr);
+
+    instr = riscv_instr::get_instr(CSRRW);
+    instr.csr = TDATA2;
+    instr.rd = ZERO;
+    instr.has_rs1 = 1;
+    instr.rs1 = cfg.gpr[1];
+    instr_list.push_back(instr);
+
+    li_instr = riscv_pseudo_instr::type_id::create("li_trigger_cfg");
+    li_instr.pseudo_instr_name = LI;
+    li_instr.rd = cfg.gpr[0];
+    li_instr.imm_str = $sformatf("0x%0x", EH2_TRIGGER_EXECUTE_BREAKPOINT);
+    instr_list.push_back(li_instr);
+
+    instr = riscv_instr::get_instr(CSRRW);
+    instr.csr = TDATA1;
+    instr.rd = ZERO;
+    instr.has_rs1 = 1;
+    instr.rs1 = cfg.gpr[0];
+    instr_list.push_back(instr);
+
+    instr = riscv_instr::get_instr(CSRRSI);
+    instr.csr = MSTATUS;
+    instr.rd = ZERO;
+    instr.imm = 5'h8;
+    instr.imm_str = "0x8";
+    instr_list.push_back(instr);
+
+    instr = riscv_instr::get_instr(NOP);
+    instr.has_label = 1'b1;
+    instr.label = target_label;
+    instr.comment = "EH2 hardware trigger target";
+    instr_list.push_back(instr);
+
+    instr = riscv_instr::get_instr(CSRRCI);
+    instr.csr = MSTATUS;
+    instr.rd = ZERO;
+    instr.imm = 5'h8;
+    instr.imm_str = "0x8";
+    instr_list.push_back(instr);
+  endfunction
+
+  function void post_randomize();
+    gen_instr();
+    if (instr_list.size() == 0) begin
+      `uvm_fatal(get_full_name(),
+                 "EH2 hardware trigger stream produced an empty instr_list")
+    end
+    foreach(instr_list[i]) begin
+      instr_list[i].atomic = 1'b1;
+      instr_list[i].has_label = 1'b0;
+      if (instr_list[i].comment == "EH2 hardware trigger target") begin
+        instr_list[i].has_label = 1'b1;
+      end
+    end
+    instr_list[0].comment = $sformatf("Start %0s", get_name());
+    instr_list[$].comment = $sformatf("End %0s", get_name());
+    if(label != "") begin
+      instr_list[0].label = label;
+      instr_list[0].has_label = 1'b1;
+    end
+  endfunction
+
 endclass
 
 

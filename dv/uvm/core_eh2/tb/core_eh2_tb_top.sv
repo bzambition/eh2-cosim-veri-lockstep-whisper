@@ -15,8 +15,9 @@
 //     +-- axi4_slave_mem (IFU memory - instruction)
 //     +-- axi4_slave_mem (SB memory - debug system bus)
 //
-// Mailbox convention (from VeeR testbench):
-//   Address 0xD0580000: write 0xFF = PASS, 0x01 = FAIL
+// Mailbox convention:
+//   Address 0xD0580000: write 0xFF/0x02 = PASS, 0x01/0x03 = FAIL
+//   0x02/0x03 are riscv-dv CORE_STATUS TEST_PASS/TEST_FAIL codes.
 //   Other printable chars are console output
 
 `include "uvm_macros.svh"
@@ -74,6 +75,12 @@ module core_eh2_tb_top;
   logic        mailbox_write;
   logic [63:0] mailbox_data;
   logic [31:0] mailbox_addr;
+  logic        mailbox_trace_write;
+  logic [63:0] mailbox_trace_data;
+  logic [31:0] mailbox_trace_addr;
+  logic        mailbox_axi_write;
+  logic [63:0] mailbox_axi_data;
+  logic [31:0] mailbox_axi_addr;
   event mailbox_test_pass;
   event mailbox_test_fail;
   bit   mailbox_test_done = 0;
@@ -81,10 +88,28 @@ module core_eh2_tb_top;
   logic  early_bin_loaded = 0;
   logic [`RV_NUM_THREADS-1:0][1:0] nb_load_retire_tag_valid_wb1;
   logic [`RV_NUM_THREADS-1:0][1:0][3:0] nb_load_retire_tag_wb1;
+  logic        lsu_trace_store_write;
+  logic        lsu_trace_store_tid;
+  logic [31:0] lsu_trace_store_addr;
+  logic [31:0] lsu_trace_store_wdata;
+  logic [3:0]  lsu_trace_store_wmask;
+  logic [63:0] lsu_trace_store_shifted;
 
-  assign mailbox_write = lsu_axi_awvalid && lsu_axi_awready;
-  assign mailbox_addr  = lsu_axi_awaddr;
-  assign mailbox_data  = lsu_axi_wdata;
+  assign mailbox_trace_write = lsu_trace_store_write;
+  assign mailbox_trace_addr  = lsu_trace_store_addr;
+  assign mailbox_trace_data  = {32'b0, lsu_trace_store_wdata};
+
+  assign mailbox_axi_write = lsu_axi_awvalid && lsu_axi_awready;
+  assign mailbox_axi_addr  = lsu_axi_awaddr;
+  assign mailbox_axi_data  = lsu_axi_wdata;
+
+  // Prefer the committed LSU store trace.  The AXI AW/W channels are
+  // decoupled, and debug/interrupt interleavings can retire the PASS store
+  // without an AW+WDATA sample in the same cycle.  Keep the AXI path only as
+  // a fallback for any early external signature writes.
+  assign mailbox_write = mailbox_trace_write || mailbox_axi_write;
+  assign mailbox_addr  = mailbox_trace_write ? mailbox_trace_addr : mailbox_axi_addr;
+  assign mailbox_data  = mailbox_trace_write ? mailbox_trace_data : mailbox_axi_data;
 
   core_eh2_tb_intf tb_intf (.clk(core_clk), .rst_n(rst_l));
 
@@ -131,13 +156,15 @@ module core_eh2_tb_top;
   always @(posedge core_clk) begin
     if (rst_l && mailbox_write && mailbox_addr == 32'hD0580000) begin
       $display("MAILBOX WRITE detected at %0t: data=%08x", $time, mailbox_data);
-      if (mailbox_data[7:0] == 8'hFF) begin
+      if (mailbox_data[7:0] == 8'hFF ||
+          mailbox_data[31:0] == 32'h0000_0002) begin
         $display("========================================");
         $display("TEST PASSED (mailbox)");
         $display("========================================");
         mailbox_test_done = 1;
         ->mailbox_test_pass;
-      end else if (mailbox_data[7:0] == 8'h01) begin
+      end else if (mailbox_data[7:0] == 8'h01 ||
+                   mailbox_data[31:0] == 32'h0000_0003) begin
         $display("========================================");
         $display("TEST FAILED (mailbox)");
         $display("========================================");
@@ -609,7 +636,7 @@ module core_eh2_tb_top;
   // Trace Monitor (simplified)
   //--------------------------------------------------------------------------
   always_ff @(posedge core_clk) begin
-    if (rst_l) begin
+    if (rst_l && !mailbox_test_done) begin
       if (trace_rv_i_valid_ip[0][0]) begin
         $display("TRACE: t0.i0 PC=%h INSN=%h", trace_rv_i_address_ip[0][31:0], trace_rv_i_insn_ip[0][31:0]);
       end
@@ -802,12 +829,6 @@ module core_eh2_tb_top;
   logic [31:0] lsu_bus_wdata;
   logic [3:0]  lsu_bus_wmask;
   logic        lsu_bus_write;
-  logic        lsu_trace_store_write;
-  logic        lsu_trace_store_tid;
-  logic [31:0] lsu_trace_store_addr;
-  logic [31:0] lsu_trace_store_wdata;
-  logic [3:0]  lsu_trace_store_wmask;
-  logic [63:0] lsu_trace_store_shifted;
 
   assign lsu_bus_valid = (lsu_axi_awvalid && lsu_axi_awready) || (lsu_axi_arvalid && lsu_axi_arready) || (lsu_axi_wvalid && lsu_axi_wready) || (lsu_axi_rvalid && lsu_axi_rready);
   assign lsu_bus_addr  = lsu_axi_awvalid ? lsu_axi_awaddr : lsu_axi_araddr;
