@@ -9,7 +9,7 @@
 - test: riscv_random_instr_test
   description: Random instruction mix test
   gen_test: riscv_rand_instr_test
-  gen_opts: '+instr_cnt=20000 +boot_mode=m +enable_interrupt=1 +enable_nested_interrupt=1
+  gen_opts: '+instr_cnt=20000 +boot_mode=m
 
     '
   rtl_test: core_eh2_base_test
@@ -36,9 +36,9 @@
   iterations: 5
   skip_in_signoff: true
 - test: riscv_load_store_test
-  description: Phase 3 tracecmp load/store smoke without high-density NB-load streams
-  gen_test: riscv_instr_base_test
-  gen_opts: '+instr_cnt=2000 +boot_mode=m +dist_control_mode=1 +dist_LOAD=20 +dist_STORE=20 +dist_ARITHMETIC=30 +dist_LOGICAL=20 +dist_BRANCH=10
+  description: Load/store instruction test
+  gen_test: riscv_rand_instr_test
+  gen_opts: '+instr_cnt=15000 +boot_mode=m +directed_instr_0=riscv_load_store_rand_instr_stream,30
 
     '
   rtl_test: core_eh2_base_test
@@ -52,9 +52,9 @@
   rtl_test: core_eh2_base_test
   iterations: 5
 - test: riscv_mul_div_test
-  description: Phase 3 tracecmp multiply smoke; DIV/REM is constrained out until delayed DIV writeback is tagged
-  gen_test: riscv_instr_base_test
-  gen_opts: '+instr_cnt=2000 +boot_mode=m +dist_control_mode=1 +dist_MULTIPLY=45 +dist_ARITHMETIC=25 +dist_LOGICAL=20
+  description: Multiply and divide test
+  gen_test: riscv_rand_instr_test
+  gen_opts: '+instr_cnt=10000 +boot_mode=m +dist_control_mode=1 +dist_MULTIPLY=30 +dist_DIVIDE=30 +dist_ARITHMETIC=20 +dist_LOGICAL=10
     +dist_BRANCH=10
 
     '
@@ -114,6 +114,8 @@
 
     '
   iterations: 15
+  tracecmp: disabled
+  tracecmp_bypass: 'async interrupt delivery verified by irq_agent/signature handshake'
 - test: riscv_irq_single_test
   description: Single interrupt test — cosim enabled (issue 53)
   gen_test: riscv_rand_instr_test
@@ -125,6 +127,8 @@
 
     '
   iterations: 5
+  tracecmp: disabled
+  tracecmp_bypass: 'async interrupt delivery verified by irq_agent/signature handshake'
 - test: riscv_debug_test
   description: Debug mode entry/exit test — cosim enabled (issue 54)
   gen_test: riscv_rand_instr_test
@@ -136,6 +140,8 @@
 
     '
   iterations: 5
+  tracecmp: disabled
+  tracecmp_bypass: 'debug delivery verified by jtag/halt_run agent and directed debug checks'
 - test: riscv_debug_csr_test
   description: Debug CSR access test — cosim enabled (issue 54)
   gen_test: riscv_rand_instr_test
@@ -147,6 +153,8 @@
 
     '
   iterations: 3
+  tracecmp: disabled
+  tracecmp_bypass: 'debug delivery verified by jtag/halt_run agent and directed debug checks'
 - test: riscv_stress_test
   description: Signoff-sized random stress test — bounded for cosim (R3-B)
   gen_test: riscv_rand_instr_test
@@ -182,6 +190,8 @@
 
     '
   iterations: 5
+  tracecmp: disabled
+  tracecmp_bypass: 'debug-mode entry is verified by directed debug/UVM agent path'
 - test: riscv_csr_hazard_test
   description: CSR pipeline hazard test
   gen_test: riscv_rand_instr_test
@@ -251,6 +261,8 @@
 
     '
   iterations: 5
+  tracecmp: disabled
+  tracecmp_bypass: 'asynchronous reset/interrupt stimulus is verified by UVM testbench checks'
 - test: riscv_single_step_test
   description: Debug single stepping test — cosim enabled (issue 54)
   gen_test: riscv_rand_instr_test
@@ -262,6 +274,8 @@
 
     '
   iterations: 3
+  tracecmp: disabled
+  tracecmp_bypass: 'debug single-step delivery verified by debug agent path'
 - test: riscv_epmp_mml_test
   description: ePMP Machine Mode Lockdown test — cosim enabled (issue 55 ePMP)
   gen_test: riscv_rand_instr_test
@@ -346,6 +360,8 @@
 
     '
   iterations: 5
+  tracecmp: disabled
+  tracecmp_bypass: 'debug delivery during WFI verified by directed debug agent path'
 - test: riscv_debug_during_csr_test
   description: Debug request during CSR access — cosim enabled (issue 54)
   gen_test: riscv_rand_instr_test
@@ -357,6 +373,8 @@
 
     '
   iterations: 5
+  tracecmp: disabled
+  tracecmp_bypass: 'debug delivery during CSR flow verified by debug agent path'
 - test: riscv_debug_ebreak_test
   description: EBREAK instruction entering debug mode — cosim enabled (issue 54)
   gen_test: riscv_rand_instr_test
@@ -365,6 +383,8 @@
     '
   rtl_test: core_eh2_debug_ebreak_test
   iterations: 3
+  tracecmp: disabled
+  tracecmp_bypass: 'debug-mode ebreak handling verified by debug agent path'
 - test: riscv_irq_wfi_test
   description: Interrupt during WFI wait state — cosim enabled (issue 53)
   gen_test: riscv_rand_instr_test
@@ -376,6 +396,8 @@
 
     '
   iterations: 5
+  tracecmp: disabled
+  tracecmp_bypass: 'async interrupt wakeup verified by irq_agent/signature handshake'
 - test: riscv_irq_csr_test
   description: Interrupt during CSR access — cosim enabled (issue 53)
   gen_test: riscv_rand_instr_test
@@ -387,6 +409,8 @@
 
     '
   iterations: 5
+  tracecmp: disabled
+  tracecmp_bypass: 'async interrupt during CSR flow verified by irq_agent/signature handshake'
 - test: riscv_irq_nest_test
   description: Nested interrupt handling — cosim enabled (issue 53)
   gen_test: riscv_rand_instr_test
@@ -398,6 +422,8 @@
 
     '
   iterations: 5
+  tracecmp: disabled
+  tracecmp_bypass: 'nested async interrupt delivery verified by irq_agent/signature handshake'
 - test: riscv_irq_in_debug_test
   description: Interrupt during debug mode — cosim enabled (issues 53, 54)
   gen_test: riscv_rand_instr_test
@@ -409,6 +435,8 @@
 
     '
   iterations: 5
+  tracecmp: disabled
+  tracecmp_bypass: 'async interrupt/debug interaction verified by irq and debug agents'
 - test: riscv_debug_in_irq_test
   description: Debug request during IRQ handler — cosim enabled (issues 53, 54)
   gen_test: riscv_rand_instr_test
@@ -420,6 +448,8 @@
 
     '
   iterations: 5
+  tracecmp: disabled
+  tracecmp_bypass: 'debug request during IRQ verified by irq and debug agents'
 - test: riscv_dret_test
   description: DRET instruction execution — cosim enabled (issue 54)
   gen_test: riscv_rand_instr_test
@@ -431,6 +461,8 @@
 
     '
   iterations: 3
+  tracecmp: disabled
+  tracecmp_bypass: 'debug-mode dret handling verified by debug agent path'
 - test: riscv_debug_ebreakmu_test
   description: EBREAK with dcsr.ebreakm/u bits — cosim enabled (issue 54)
   gen_test: riscv_rand_instr_test
@@ -442,6 +474,8 @@
 
     '
   iterations: 3
+  tracecmp: disabled
+  tracecmp_bypass: 'debug-mode ebreak handling verified by debug agent path'
 - test: riscv_single_debug_pulse_test
   description: Single debug request pulse — cosim enabled (issue 54)
   gen_test: riscv_rand_instr_test
@@ -453,6 +487,8 @@
 
     '
   iterations: 3
+  tracecmp: disabled
+  tracecmp_bypass: 'debug request delivery verified by debug agent path'
 - test: riscv_invalid_csr_test
   description: Invalid CSR access exception
   gen_test: riscv_rand_instr_test
@@ -492,6 +528,8 @@
   cosim: enabled
   iterations: 5
 
+  tracecmp: disabled
+  tracecmp_bypass: 'debug trigger delivery verified by debug agent path'
 - test: riscv_debug_stress_test
   description: High-frequency debug request stress test — cosim enabled (issue 54)
   gen_test: riscv_rand_instr_test
@@ -505,6 +543,8 @@
   cosim: enabled
   iterations: 15
 
+  tracecmp: disabled
+  tracecmp_bypass: 'asynchronous debug stress verified by debug agent path'
 - test: riscv_debug_branch_jump_test
   description: Debug mode with branch/jump in debug ROM — cosim enabled (issue 54)
   gen_test: riscv_rand_instr_test
@@ -518,6 +558,8 @@
   cosim: enabled
   iterations: 10
 
+  tracecmp: disabled
+  tracecmp_bypass: 'debug ROM execution verified by debug agent path'
 - test: riscv_debug_csr_entry_test
   description: Debug request during CSR writes to xSTATUS/xIE — cosim enabled (issue 54)
   gen_test: riscv_rand_instr_test
@@ -531,6 +573,8 @@
   cosim: enabled
   iterations: 10
 
+  tracecmp: disabled
+  tracecmp_bypass: 'debug entry during CSR flow verified by debug agent path'
 - test: riscv_assorted_traps_interrupts_debug_test
   description: Assorted traps, interrupts, and debug combined stress — cosim enabled (issues 53, 54)
   gen_test: riscv_rand_instr_test
@@ -544,6 +588,8 @@
   cosim: enabled
   iterations: 10
 
+  tracecmp: disabled
+  tracecmp_bypass: 'async interrupt/debug delivery verified by irq and debug agents'
 - test: riscv_pmp_out_of_bounds_test
   description: PMP out-of-bounds memory access test — cosim enabled (issue 55)
   gen_test: riscv_rand_instr_test

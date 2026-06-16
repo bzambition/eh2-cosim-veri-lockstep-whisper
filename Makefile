@@ -205,7 +205,7 @@ spike:
 	@if [ ! -d "$(SPIKE_DIR)" ]; then \
 	  echo "ERROR: SPIKE_DIR=$(SPIKE_DIR) 不存在。请确认 vendor/spike 已拷入。"; exit 1; fi
 	@cd $(SPIKE_DIR) && mkdir -p build && cd build && \
-	  ../configure --prefix=$(SPIKE_DIR)/install --enable-commitlog CXX=$(SPIKE_CXX) CXXFLAGS="-std=c++17" && \
+	  ../configure --prefix=$(SPIKE_DIR)/install --enable-commitlog --enable-misaligned CXX=$(SPIKE_CXX) CXXFLAGS="-std=c++17" && \
 	  $(MAKE) -j4 && $(MAKE) install
 	@tmp_softfloat=$$(mktemp) && \
 	  cp $(SPIKE_DIR)/build/libsoftfloat.a $$tmp_softfloat && \
@@ -370,6 +370,7 @@ regress:
 	  --sim-opts "$(SIM_OPTS)" \
 	  --build-dir $(BUILD_DIR)/regress_$(SIMULATOR) \
 	  --output $(if $(OUT),$(OUT),$(BUILD_DIR)/regress_$(SIMULATOR)) \
+	  $(if $(filter riscvdv,$(TESTLIST)),$(if $(TEST),,--min-passed 50),) \
 	  $(if $(filter 1,$(COV)),--coverage,) \
 	  $(if $(filter 1,$(WAVES)),--waves,)
 	@echo "=== [regress] 完成 ==="

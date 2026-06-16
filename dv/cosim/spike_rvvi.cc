@@ -18,6 +18,8 @@ constexpr uint32_t kDefaultRamBase = 0x80000000u;
 constexpr size_t kDefaultRamSize = 256u * 1024u * 1024u;
 constexpr uint32_t kDefaultMailboxBase = 0xd0580000u;
 constexpr size_t kDefaultMailboxSize = 4u * 1024u;
+constexpr uint32_t kDefaultDccmBase = 0xf0040000u;
+constexpr size_t kDefaultDccmSize = 64u * 1024u;
 constexpr uint32_t kDefaultMtvec = 0x0u;
 constexpr uint32_t kDefaultPmpRegions = 0u;
 constexpr uint32_t kDefaultPmpGranularity = 0u;
@@ -179,6 +181,7 @@ extern "C" bool_t rvviRefInit(const char *programPath) {
         kDefaultMhpmCounters, g_config_num_harts);
     g_ref->add_memory(kDefaultRamBase, kDefaultRamSize);
     g_ref->add_memory(kDefaultMailboxBase, kDefaultMailboxSize);
+    g_ref->add_memory(kDefaultDccmBase, kDefaultDccmSize);
 
     if (programPath && std::strlen(programPath) != 0) {
       if (!g_ref->ref_load_elf(programPath)) {
@@ -507,6 +510,37 @@ extern "C" uint64_t rvviRefCsrGet(uint32_t hartId, uint32_t csrIndex) {
 extern "C" uint64_t rvviRefInsBinGet(uint32_t hartId) {
   if (!valid_ref(hartId)) return 0;
   return g_ref->ref_insn_bin(hartId);
+}
+
+extern "C" uint32_t eh2RefCsrWritesGet(uint32_t hartId, uint32_t *csr,
+                                        uint64_t *value,
+                                        uint32_t maxEntries) {
+  if (!valid_ref(hartId) || !csr || !value) return 0;
+  const auto &writes = g_ref->ref_csr_writes(hartId);
+  uint32_t count = 0;
+  for (const auto &write : writes) {
+    if (count >= maxEntries) break;
+    csr[count] = write.csr;
+    value[count] = write.value;
+    count++;
+  }
+  return count;
+}
+
+extern "C" uint32_t eh2RefMemWritesGet(uint32_t hartId, uint64_t *addr,
+                                        uint64_t *data, uint32_t *be,
+                                        uint32_t maxEntries) {
+  if (!valid_ref(hartId) || !addr || !data || !be) return 0;
+  const auto &writes = g_ref->ref_mem_writes(hartId);
+  uint32_t count = 0;
+  for (const auto &write : writes) {
+    if (count >= maxEntries) break;
+    addr[count] = write.addr;
+    data[count] = write.data;
+    be[count] = write.be;
+    count++;
+  }
+  return count;
 }
 
 extern "C" void rvviRefFprSet(uint32_t hartId, uint32_t fprIndex,

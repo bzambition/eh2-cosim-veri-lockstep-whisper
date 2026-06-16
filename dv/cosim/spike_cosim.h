@@ -38,6 +38,17 @@ struct DSideAccessInfo {
   bool widened_load;
 };
 
+struct RefMemWrite {
+  uint32_t addr;
+  uint32_t data;
+  uint32_t be;
+};
+
+struct RefCsrWrite {
+  uint32_t csr;
+  uint32_t value;
+};
+
 class SpikeCosim : public simif_t {
 public:
   SpikeCosim(const std::string &isa_string, uint32_t start_pc,
@@ -95,6 +106,8 @@ public:
   uint32_t ref_gpr_written_mask(int hart = 0);
   uint64_t ref_csr(int hart, int idx);
   void ref_csr_set(int hart, int idx, uint64_t value);
+  const std::vector<RefCsrWrite> &ref_csr_writes(int hart = 0) const;
+  const std::vector<RefMemWrite> &ref_mem_writes(int hart = 0) const;
 
 private:
   // Number of hardware threads (1 or 2)
@@ -153,6 +166,8 @@ private:
     bool ref_last_trap = false;
     bool ref_async_event_pending = false;
     uint32_t ref_gpr_written_mask = 0;
+    std::vector<RefCsrWrite> ref_csr_writes;
+    std::vector<RefMemWrite> ref_mem_writes;
   };
   PerThreadState thread_state[COSIM_MAX_THREADS];
 

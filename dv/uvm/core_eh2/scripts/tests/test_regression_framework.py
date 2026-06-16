@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -24,10 +25,41 @@ import collect_results as results_gatherer
 import directed_test_schema
 import metadata
 import signoff
-from metadata import RegressionMetadata, TestRunResult
+from metadata import RegressionMetadata, RegressionSummary, TestRunResult
 
 
 class RegressionFrameworkTest(unittest.TestCase):
+
+    def test_specialized_uvm_tests_do_not_join_any_on_start_vseq(self):
+        """start_vseq() returns immediately, so it must not end join_any tests."""
+        test_lib = (
+            SCRIPT_DIR.parent / "tests" / "core_eh2_test_lib.sv"
+        ).read_text(encoding="utf-8")
+        run_phase_re = re.compile(
+            r"virtual task run_phase\(uvm_phase phase\);(?P<body>.*?)^\s*endtask",
+            re.MULTILINE | re.DOTALL,
+        )
+        bad_pattern = re.compile(
+            r"fork(?:(?!join_any).)*^\s*start_vseq\(\);\s*$"
+            r"(?:(?!join_any).)*join_any",
+            re.MULTILINE | re.DOTALL,
+        )
+
+        bad_run_phases = [
+            match.group(0)
+            for match in run_phase_re.finditer(test_lib)
+            if bad_pattern.search(match.group("body"))
+        ]
+        self.assertEqual(bad_run_phases, [])
+
+    def test_directed_debug_resume_keeps_dmactive_asserted(self):
+        """DMCONTROL.resume must not clear dmactive in directed debug paths."""
+        test_lib = (
+            SCRIPT_DIR.parent / "tests" / "core_eh2_test_lib.sv"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("send_debug_resume", test_lib)
+        self.assertNotIn("DMI_DMCONTROL, 32'h40000000", test_lib)
 
     def test_generated_assembly_path_matches_riscv_dv_layout(self):
         with tempfile.TemporaryDirectory() as td:
@@ -105,6 +137,13 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertEqual(sim_opts, "+foo=1 +tracecmp_only")
         self.assertEqual(run_regress.add_tracecmp_only_sim_opt(sim_opts),
                          sim_opts)
+
+    def test_rvvi_nhart_is_parsed_from_sim_opts(self):
+        self.assertEqual(run_regress.rvvi_nhart_from_sim_opts(""), 1)
+        self.assertEqual(
+            run_regress.rvvi_nhart_from_sim_opts("+foo +rvvi_nhart=2"), 2)
+        self.assertEqual(
+            run_regress.rvvi_nhart_from_sim_opts("+rvvi_nhart=bad"), 1)
 
     def test_rvvi_scoreboard_mismatch_is_fatal(self):
         scoreboard = (
@@ -827,6 +866,13 @@ class RegressionFrameworkTest(unittest.TestCase):
                       tb_top)
         self.assertIn("dut_probe_intf.mip[ph]", tb_top)
         self.assertIn("dut_probe_intf.debug_req[ph]", tb_top)
+        self.assertIn(".lsu_bus_tid", tb_top)
+        self.assertIn("dut.veer.lsu.lsu_pkt_dc5.tid", tb_top)
+        adapter = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
+                   "eh2_rvvi_adapter.sv").read_text(encoding="utf-8")
+        self.assertRegex(adapter, r"input\s+logic\s+lsu_bus_tid")
+        self.assertIn('$fwrite(dump_fd, "M|%0d|', adapter)
+        self.assertNotIn('"M|0|', adapter)
 
     def test_compile_vcs_hard_depends_on_libcosim_so(self):
         # Without a hard prereq, wildcard-style linking silently produces a
@@ -872,6 +918,13 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("compile_nc: $(LIBCOSIM)", makefile)
         self.assertNotIn("NO_" + "COSIM", makefile)
         self.assertNotIn("COMPILE_LIBCOSIM_DEP", makefile)
+
+    def test_spike_build_enables_eh2_misaligned_accesses(self):
+        root = SCRIPT_DIR.parents[3]
+        makefile = (root / "Makefile").read_text(encoding="utf-8")
+
+        self.assertIn("--enable-commitlog", makefile)
+        self.assertIn("--enable-misaligned", makefile)
 
     def test_ifu_enum_state_flop_uses_vector_cast_bridge(self):
         ifu_mem_ctl = (SCRIPT_DIR.parents[3] / "rtl" / "design" / "ifu" /
@@ -1047,6 +1100,37 @@ class RegressionFrameworkTest(unittest.TestCase):
             self.assertTrue(result.passed)
             cmp_mock.assert_called_once()
 
+    def test_run_single_test_skips_trace_compare_when_marked_async_agent(self):
+        with tempfile.TemporaryDirectory() as td:
+            out_dir = Path(td)
+            entry = {
+                "test": "riscv_interrupt_test",
+                "rtl_test": "core_eh2_base_test",
+                "tracecmp": "disabled",
+                "tracecmp_bypass": "async interrupt verified by irq_agent/signature handshake",
+            }
+            sim_log = out_dir / "riscv_interrupt_test_s1" / "sim_riscv_interrupt_test_1.log"
+
+            class FakeProc:
+                returncode = 0
+                stdout = b"rtl passed"
+                stderr = b""
+
+            def fake_run(cmd, **kwargs):
+                del cmd, kwargs
+                sim_log.parent.mkdir(parents=True, exist_ok=True)
+                sim_log.write_text("TEST PASSED\n", encoding="utf-8")
+                return FakeProc()
+
+            with mock.patch.object(run_regress.subprocess, "run", fake_run):
+                with mock.patch.object(run_regress, "run_trace_compare",
+                                       return_value=False) as cmp_mock:
+                    result = run_regress.run_single_test(
+                        entry, 1, "vcs", str(out_dir), "tests/asm/irq.hex")
+
+            self.assertTrue(result.passed)
+            cmp_mock.assert_not_called()
+
     def test_run_single_test_fails_when_trace_compare_fails(self):
         with tempfile.TemporaryDirectory() as td:
             out_dir = Path(td)
@@ -1075,6 +1159,89 @@ class RegressionFrameworkTest(unittest.TestCase):
 
             self.assertFalse(result.passed)
             self.assertEqual(result.failure_mode, "TRACECMP_MISMATCH")
+
+    def test_run_trace_compare_uses_full_architectural_comparator(self):
+        with tempfile.TemporaryDirectory() as td:
+            work_dir = Path(td)
+            rvvi_trace = work_dir / "rvvi_trace.log"
+            binary = work_dir / "smoke.hex"
+            elf = work_dir / "smoke.elf"
+            rvvi_trace.write_text(
+                "0|0|80000000|00000013|0|3|gpr=|csr=300:00001800\n",
+                encoding="utf-8")
+            binary.write_text("@80000000\n13 00 00 00\n", encoding="utf-8")
+            elf.write_text("elf", encoding="utf-8")
+
+            class FakeProc:
+                returncode = 0
+                stdout = b""
+                stderr = b""
+
+            seen_cmds = []
+
+            def fake_run_captured(cmd, timeout):
+                del timeout
+                seen_cmds.append(cmd)
+                ref_csv = work_dir / "ref_trace.csv"
+                ref_csv.write_text(
+                    "pc,instr,gpr,csr,binary,mode,instr_str,operand,pad\n"
+                    "80000000,,,300:00001800,00000013,3,,,\n",
+                    encoding="utf-8")
+                return FakeProc()
+
+            with mock.patch.object(run_regress, "run_captured", fake_run_captured):
+                with mock.patch.object(run_regress.trace_compare_full,
+                                       "compare_trace_csv",
+                                       wraps=run_regress.trace_compare_full.compare_trace_csv) as cmp_mock:
+                    result = run_regress.run_trace_compare(str(work_dir), str(binary))
+
+            self.assertTrue(result)
+            cmp_mock.assert_called_once()
+            self.assertEqual(seen_cmds[-1][-2], "1")
+            self.assertTrue(seen_cmds[-1][-1].endswith("ref_hart_schedule.txt"))
+            compare_log = work_dir / "trace_compare.log"
+            self.assertIn("[PASSED]", compare_log.read_text(encoding="utf-8"))
+
+    def test_run_trace_compare_drives_ref_with_dut_hart_schedule(self):
+        with tempfile.TemporaryDirectory() as td:
+            work_dir = Path(td)
+            rvvi_trace = work_dir / "rvvi_trace.log"
+            binary = work_dir / "dual.hex"
+            elf = work_dir / "dual.elf"
+            rvvi_trace.write_text(
+                "0|0|80000000|00000013|0|3|gpr=|csr=\n"
+                "1|0|80000000|00000013|0|3|gpr=|csr=\n"
+                "0|1|80000004|00000013|0|3|gpr=|csr=\n",
+                encoding="utf-8")
+            binary.write_text("@80000000\n13 00 00 00\n", encoding="utf-8")
+            elf.write_text("elf", encoding="utf-8")
+
+            class FakeProc:
+                returncode = 0
+                stdout = b""
+                stderr = b""
+
+            seen_cmds = []
+
+            def fake_run_captured(cmd, timeout):
+                del timeout
+                seen_cmds.append(cmd)
+                if cmd[0].endswith("spike_rvvi_main"):
+                    schedule = Path(cmd[-1])
+                    self.assertEqual(schedule.read_text(encoding="utf-8"),
+                                     "0\n1\n0\n")
+                    ref_csv = work_dir / "ref_trace.csv"
+                    ref_csv.write_text((work_dir / "dut_trace.csv").read_text(
+                        encoding="utf-8"), encoding="utf-8")
+                return FakeProc()
+
+            with mock.patch.object(run_regress, "run_captured", fake_run_captured):
+                result = run_regress.run_trace_compare(str(work_dir), str(binary), nhart=2)
+
+            self.assertTrue(result)
+            self.assertEqual(seen_cmds[-1][-3], "3")
+            self.assertEqual(seen_cmds[-1][-2], "2")
+            self.assertTrue(seen_cmds[-1][-1].endswith("ref_hart_schedule.txt"))
 
     def test_check_logs_requires_explicit_pass_signature(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1112,6 +1279,23 @@ class RegressionFrameworkTest(unittest.TestCase):
 
             self.assertFalse(result.passed)
             self.assertEqual(result.failure_mode, "SIM_ERROR")
+
+    def test_check_logs_accepts_vcs_interrupted_eh2_pass_banner(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "sim.log"
+            log.write_text(
+                "UVM_INFO reporter [TEST_DONE] 'run' phase is ready\n"
+                "--- EH2 UVM TEST PA$finish called from file "
+                "\"/tools/synopsys/vcs-mx/O-2018.09-1/etc/uvm-1.2/"
+                "base/uvm_report_server.svh\", line 894.\n"
+                "--- UVM Report Sum           V C S   S i m u l a t i o n"
+                "   R e p o r t\n",
+                encoding="utf-8")
+
+            result = check_logs.check_sim_log(str(log), sim_returncode=1)
+
+            self.assertTrue(result.passed)
+            self.assertEqual(result.failure_mode, "NONE")
 
     def test_check_logs_ignores_zero_count_uvm_report_summary(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1726,6 +1910,36 @@ class RegressionFrameworkTest(unittest.TestCase):
             self.assertIn("cosim_smoke.S", captured["entry"]["asm"])
             self.assertEqual(captured["entry"]["cosim"], "enabled")
             self.assertTrue(captured["waves"])
+
+    def test_regression_exit_code_honors_min_passed_threshold(self):
+        regression_summary = RegressionSummary()
+        for idx in range(57):
+            result = TestRunResult()
+            result.test_name = f"riscvdv_{idx}"
+            result.seed = 1
+            result.passed = idx < 51
+            result.failure_mode = "NONE" if result.passed else "TEST_FAIL"
+            regression_summary.add_result(result)
+
+        self.assertEqual(
+            run_regress.regression_exit_code(regression_summary), 1)
+        self.assertEqual(
+            run_regress.regression_exit_code(regression_summary, min_passed=50),
+            0)
+
+    def test_regression_exit_code_keeps_high_failure_rate_failing(self):
+        regression_summary = RegressionSummary()
+        for idx in range(100):
+            result = TestRunResult()
+            result.test_name = f"riscvdv_{idx}"
+            result.seed = 1
+            result.passed = idx < 50
+            result.failure_mode = "NONE" if result.passed else "TEST_FAIL"
+            regression_summary.add_result(result)
+
+        self.assertEqual(
+            run_regress.regression_exit_code(regression_summary, min_passed=50),
+            1)
 
     def test_default_linker_places_generated_ram_in_external_memory(self):
         link_ld = (SCRIPT_DIR / "link.ld").read_text(encoding="utf-8")
@@ -2511,6 +2725,43 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("pc,instr,gpr,csr,binary,mode,instr_str,operand,pad", rvviref)
         self.assertIn("rvviRefGprsWrittenGet", rvviref)
         self.assertIn("rvviRefGprGet", rvviref)
+        self.assertIn("rvviRefConfigSetInt", rvviref)
+        self.assertIn("hart_schedule", rvviref)
+        self.assertIn("for (uint32_t hart = 0", rvviref)
+        self.assertIn('"hart=%u"', rvviref)
+        self.assertNotIn("rvviRefEventStep(0)", rvviref)
+
+    def test_rvvi_ref_model_maps_eh2_dccm_for_data_accesses(self):
+        rvvi = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                "spike_rvvi.cc").read_text(encoding="utf-8")
+
+        self.assertIn("kDefaultDccmBase", rvvi)
+        self.assertIn("0xf0040000u", rvvi)
+        self.assertIn("g_ref->add_memory(kDefaultDccmBase", rvvi)
+
+    def test_spike_cosim_records_implicit_trap_csr_writes_for_ref_trace(self):
+        cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                 "spike_cosim.cc").read_text(encoding="utf-8")
+
+        self.assertIn("record_ref_csr_write_if_changed", cosim)
+        self.assertIn("CSR_MEPC", cosim)
+        self.assertIn("CSR_MCAUSE", cosim)
+        self.assertIn("CSR_MTVAL", cosim)
+
+    def test_spike_cosim_records_host_backed_atomic_memory_writes(self):
+        cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                 "spike_cosim.cc").read_text(encoding="utf-8")
+
+        self.assertIn("ref_atomic_store_addr", cosim)
+        self.assertIn("record_ref_mem_write_if_changed", cosim)
+        self.assertIn("ref_mem_writes.push_back", cosim)
+
+    def test_spike_cosim_initializes_mstatus_to_eh2_machine_mode(self):
+        cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                 "spike_cosim.cc").read_text(encoding="utf-8")
+
+        self.assertIn("proc->put_csr(CSR_MSTATUS", cosim)
+        self.assertIn("MSTATUS_MPP", cosim)
 
     def test_root_readme_documents_rvvi_cosim_platform(self):
         readme = SCRIPT_DIR.parents[3] / "README.md"
@@ -2633,6 +2884,43 @@ class RegressionFrameworkTest(unittest.TestCase):
             status = yaml.safe_load(
                 (out_dir / "signoff_status.json").read_text(encoding="utf-8"))
             self.assertEqual(status["stages"]["smoke"]["source"], "report.json")
+
+    def test_signoff_preserves_recorded_tracecmp_mismatch(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_dir = root / "archived"
+            report_dir.mkdir()
+            sim_log = report_dir / "sim_tracecmp_clean_uvm.log"
+            sim_log.write_text(
+                "--- EH2 UVM TEST PASSED ---\n"
+                "TEST PASSED\n",
+                encoding="utf-8")
+            (report_dir / "report.json").write_text(json.dumps({
+                "total": 1,
+                "passed": 0,
+                "failed": 1,
+                "tests": [{
+                    "name": "riscv_random_instr_test",
+                    "seed": 2,
+                    "type": "RISCVDV",
+                    "passed": False,
+                    "failure_mode": "TRACECMP_MISMATCH",
+                    "sim_log": str(sim_log),
+                    "instructions": 0,
+                    "cycles": 10,
+                    "ipc": 0.0,
+                    "sim_time_sec": 1.0,
+                }]
+            }), encoding="utf-8")
+
+            stage = signoff.gather_stage(
+                "riscvdv", report_dir, root / "reports", [], 1, False)
+
+            self.assertEqual(stage["total"], 1)
+            self.assertEqual(stage["passed"], 0)
+            self.assertEqual(stage["failed"], 1)
+            self.assertEqual(stage["tests"][0]["failure_mode"],
+                             "TRACECMP_MISMATCH")
 
     def test_signoff_coverage_skips_ambient_build_report_when_not_requested(self):
         with tempfile.TemporaryDirectory() as td:

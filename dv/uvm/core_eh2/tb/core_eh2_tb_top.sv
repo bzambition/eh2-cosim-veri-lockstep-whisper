@@ -79,6 +79,8 @@ module core_eh2_tb_top;
   bit   mailbox_test_done = 0;
   string early_bin_path;
   logic  early_bin_loaded = 0;
+  logic [`RV_NUM_THREADS-1:0][1:0] nb_load_retire_tag_valid_wb1;
+  logic [`RV_NUM_THREADS-1:0][1:0][3:0] nb_load_retire_tag_wb1;
 
   assign mailbox_write = lsu_axi_awvalid && lsu_axi_awready;
   assign mailbox_addr  = lsu_axi_awaddr;
@@ -97,6 +99,24 @@ module core_eh2_tb_top;
     ifu_mem.mem[tb_intf.mem_write_addr] = tb_intf.mem_write_data;
     sb_mem.mem[tb_intf.mem_write_addr]  = tb_intf.mem_write_data;
     tb_intf.mem_write_done_id = tb_intf.mem_write_req_id;
+  end
+
+  always_ff @(posedge core_clk or negedge rst_l) begin
+    if (!rst_l) begin
+      nb_load_retire_tag_valid_wb1 <= '0;
+      nb_load_retire_tag_wb1       <= '0;
+    end else begin
+      for (int h = 0; h < `RV_NUM_THREADS; h++) begin
+        nb_load_retire_tag_valid_wb1[h][0] <=
+            `DEC.decode.wbd.i0valid & `DEC.decode.wbd.i0load &
+            (`DEC.decode.wbd.i0tid == h[0]);
+        nb_load_retire_tag_valid_wb1[h][1] <=
+            `DEC.decode.wbd.i1valid & `DEC.decode.wbd.i1load &
+            (`DEC.decode.wbd.i1tid == h[0]);
+        nb_load_retire_tag_wb1[h][0] <= `DEC.lsu_nonblock_load_inv_tag_dc5;
+        nb_load_retire_tag_wb1[h][1] <= `DEC.lsu_nonblock_load_inv_tag_dc5;
+      end
+    end
   end
 
   // Trace commit monitor
@@ -782,6 +802,12 @@ module core_eh2_tb_top;
   logic [31:0] lsu_bus_wdata;
   logic [3:0]  lsu_bus_wmask;
   logic        lsu_bus_write;
+  logic        lsu_trace_store_write;
+  logic        lsu_trace_store_tid;
+  logic [31:0] lsu_trace_store_addr;
+  logic [31:0] lsu_trace_store_wdata;
+  logic [3:0]  lsu_trace_store_wmask;
+  logic [63:0] lsu_trace_store_shifted;
 
   assign lsu_bus_valid = (lsu_axi_awvalid && lsu_axi_awready) || (lsu_axi_arvalid && lsu_axi_arready) || (lsu_axi_wvalid && lsu_axi_wready) || (lsu_axi_rvalid && lsu_axi_rready);
   assign lsu_bus_addr  = lsu_axi_awvalid ? lsu_axi_awaddr : lsu_axi_araddr;
@@ -789,6 +815,24 @@ module core_eh2_tb_top;
   assign lsu_bus_wdata = lsu_axi_wdata[31:0];
   assign lsu_bus_wmask = lsu_axi_wstrb[3:0];
   assign lsu_bus_write = lsu_axi_awvalid && lsu_axi_awready;
+
+  assign lsu_trace_store_write =
+      dut.veer.lsu.lsu_pkt_dc5.valid &
+      dut.veer.lsu.lsu_commit_dc5 &
+      ((dut.veer.lsu.lsu_pkt_dc5.store) |
+       (dut.veer.lsu.lsu_pkt_dc5.atomic & ~dut.veer.lsu.lsu_pkt_dc5.lr)) &
+      (~dut.veer.lsu.lsu_pkt_dc5.sc | dut.veer.lsu.lsu_sc_success_dc5);
+  assign lsu_trace_store_tid = dut.veer.lsu.lsu_pkt_dc5.tid;
+  assign lsu_trace_store_addr = dut.veer.lsu.lsu_addr_dc5;
+  assign lsu_trace_store_shifted =
+      dut.veer.lsu.store_data_ext_dc5 >> {dut.veer.lsu.lsu_addr_dc5[1:0], 3'b000};
+  assign lsu_trace_store_wdata = lsu_trace_store_shifted[31:0];
+  assign lsu_trace_store_wmask =
+      ({4{dut.veer.lsu.lsu_pkt_dc5.by}}   & 4'h1) |
+      ({4{dut.veer.lsu.lsu_pkt_dc5.half}} & 4'h3) |
+      ({4{dut.veer.lsu.lsu_pkt_dc5.word |
+           dut.veer.lsu.lsu_pkt_dc5.dword |
+           dut.veer.lsu.lsu_pkt_dc5.atomic}} & 4'hf);
 
   //--------------------------------------------------------------------------
   // RVFI Converter Instance (Trace + LSU -> Standard RVFI format)
@@ -855,15 +899,40 @@ module core_eh2_tb_top;
           `DEC.dec_div_cancel & (`DEC.dec_div_tid == ph[0]);
       assign dut_probe_intf.div_cancel_overwrite[ph] =
           `DEC.dec_div_cancel_overwrite & (`DEC.dec_div_tid == ph[0]);
+      assign dut_probe_intf.div_issue_valid[ph] =
+          dut.veer.div_p.valid & (dut.veer.div_p.tid == ph[0]);
+      assign dut_probe_intf.div_issue_rd[ph] = `DEC.decode.i0r.rd;
+      assign dut_probe_intf.div_issue_rs1[ph] = dut.veer.exu.div_rs1_d;
+      assign dut_probe_intf.div_issue_rs2[ph] = dut.veer.exu.div_rs2_d;
+      assign dut_probe_intf.div_issue_unsigned[ph] = dut.veer.div_p.unsign;
+      assign dut_probe_intf.div_issue_rem[ph] = dut.veer.div_p.rem;
       assign dut_probe_intf.div_rd[ph]     = `DEC.decode.div_rd;
       assign dut_probe_intf.div_result[ph] = `EXU.div_e1.out_raw[31:0];
       assign dut_probe_intf.div_wren[ph] =
           dut.veer.exu_div_wren & (`DEC.div_tid_wb == ph[0]);
       assign dut_probe_intf.div_wdata[ph]  = dut.veer.exu_div_result[31:0];
 
+      assign dut_probe_intf.nb_load_alloc_valid[ph] =
+          `DEC.lsu_nonblock_load_valid_dc1 & (`DEC.decode.nonblock_load_tid_dc1 == ph[0]);
+      assign dut_probe_intf.nb_load_alloc_rd[ph] =
+          `DEC.decode.nonblock_load_rd;
+      assign dut_probe_intf.nb_load_alloc_tag[ph] =
+          `DEC.lsu_nonblock_load_tag_dc1;
+      assign dut_probe_intf.nb_load_retire_tag_valid[ph][0] =
+          nb_load_retire_tag_valid_wb1[ph][0];
+      assign dut_probe_intf.nb_load_retire_tag_valid[ph][1] =
+          nb_load_retire_tag_valid_wb1[ph][1];
+      assign dut_probe_intf.nb_load_retire_tag[ph][0] =
+          nb_load_retire_tag_wb1[ph][0];
+      assign dut_probe_intf.nb_load_retire_tag[ph][1] =
+          nb_load_retire_tag_wb1[ph][1];
       assign dut_probe_intf.nb_load_wen[ph]   = `DEC.dec_nonblock_load_wen[ph];
       assign dut_probe_intf.nb_load_waddr[ph] = `DEC.dec_nonblock_load_waddr[ph];
+      assign dut_probe_intf.nb_load_data_valid[ph] =
+          `DEC.lsu_nonblock_load_data_valid & (`DEC.lsu_nonblock_load_data_tid == ph[0]);
       assign dut_probe_intf.nb_load_data[ph]  = `DEC.lsu_nonblock_load_data;
+      assign dut_probe_intf.nb_load_data_tag[ph] =
+          `DEC.lsu_nonblock_load_data_tag;
 
       // Interrupt/NMI/debug state for cosim notification.
       // Construct MIP: bit 11 = MEIP, bit 7 = MTIP, bit 3 = MSIP.
@@ -964,15 +1033,37 @@ module core_eh2_tb_top;
     .csr_mtval       (dut_probe_intf.mtval),
     .csr_mip         (dut_probe_intf.mip),
     .debug_mode      (dut_probe_intf.debug_mode),
-    .nb_load_wen     (dut_probe_intf.nb_load_wen),
-    .nb_load_waddr   (dut_probe_intf.nb_load_waddr),
-    .nb_load_data    (dut_probe_intf.nb_load_data),
+    .csr_wen         (dut.veer.dec.dec_i0_csr_wen_wb),
+    .csr_waddr       (dut.veer.dec.dec_i0_csr_wraddr_wb),
+    .csr_wdata       (dut.veer.dec.dec_i0_csr_wrdata_wb),
+    .csr_wtid        (dut.veer.dec.decode.dec_i0_tid_wb),
+    .nb_load_alloc_valid (dut_probe_intf.nb_load_alloc_valid),
+    .nb_load_alloc_rd    (dut_probe_intf.nb_load_alloc_rd),
+    .nb_load_alloc_tag   (dut_probe_intf.nb_load_alloc_tag),
+    .nb_load_retire_tag_valid (dut_probe_intf.nb_load_retire_tag_valid),
+    .nb_load_retire_tag  (dut_probe_intf.nb_load_retire_tag),
+    .nb_load_wen         (dut_probe_intf.nb_load_wen),
+    .nb_load_waddr       (dut_probe_intf.nb_load_waddr),
+    .nb_load_data_valid  (dut_probe_intf.nb_load_data_valid),
+    .nb_load_data        (dut_probe_intf.nb_load_data),
+    .nb_load_data_tag    (dut_probe_intf.nb_load_data_tag),
+    .div_issue_valid (dut_probe_intf.div_issue_valid),
+    .div_issue_rd    (dut_probe_intf.div_issue_rd),
+    .div_issue_rs1   (dut_probe_intf.div_issue_rs1),
+    .div_issue_rs2   (dut_probe_intf.div_issue_rs2),
+    .div_issue_unsigned (dut_probe_intf.div_issue_unsigned),
+    .div_issue_rem   (dut_probe_intf.div_issue_rem),
     .div_wren        (dut_probe_intf.div_wren),
     .div_rd          (dut_probe_intf.div_rd),
     .div_wdata       (dut_probe_intf.div_wdata),
     .div_cancel      (dut_probe_intf.div_cancel),
     .div_cancel_overwrite (dut_probe_intf.div_cancel_overwrite),
-    .div_result      (dut_probe_intf.div_result)
+    .div_result      (dut_probe_intf.div_result),
+    .lsu_bus_write   (lsu_trace_store_write),
+    .lsu_bus_tid     (lsu_trace_store_tid),
+    .lsu_bus_addr    (lsu_trace_store_addr),
+    .lsu_bus_wdata   (lsu_trace_store_wdata),
+    .lsu_bus_wmask   (lsu_trace_store_wmask)
   );
 
   //--------------------------------------------------------------------------

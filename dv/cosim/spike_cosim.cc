@@ -13,6 +13,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 #include "fesvr/elfloader.h"
 #include "fesvr/memif.h"
@@ -71,6 +72,91 @@ private:
   SpikeCosim &cosim;
   memif_endianness_t target_endianness = memif_endianness_little;
 };
+
+class FixedWritableCsr : public basic_csr_t {
+public:
+  FixedWritableCsr(processor_t *proc, reg_t addr, reg_t value)
+      : basic_csr_t(proc, addr, value), value_(value) {}
+
+  reg_t read() const noexcept override { return value_; }
+
+protected:
+  bool unlogged_write(reg_t val) noexcept override {
+    (void)val;
+    return true;
+  }
+
+private:
+  reg_t value_;
+};
+
+void record_ref_csr_write_if_changed(
+    processor_t *proc, std::vector<RefCsrWrite> &writes,
+    const std::pair<uint32_t, uint32_t> &before) {
+  uint32_t csr = before.first;
+  uint32_t old_value = before.second;
+  uint32_t new_value = 0;
+  try {
+    new_value = proc->get_csr(csr) & 0xffffffffu;
+  } catch (...) {
+    return;
+  }
+  if (new_value == old_value) return;
+
+  for (auto &write : writes) {
+    if (write.csr == csr) {
+      write.value = new_value;
+      return;
+    }
+  }
+
+  RefCsrWrite write{};
+  write.csr = csr;
+  write.value = new_value;
+  writes.push_back(write);
+}
+
+bool ref_atomic_store_addr(SpikeCosim &cosim, processor_t *proc,
+                           uint32_t insn, uint32_t &addr,
+                           uint32_t &value_before) {
+  // RV32A word store operations are SC.W and AMO*.W. LR.W is load-only.
+  if ((insn & 0x7f) != 0x2f || ((insn >> 12) & 0x7) != 2 ||
+      ((insn >> 27) & 0x1f) == 0x02) {
+    return false;
+  }
+
+  uint32_t rs1 = (insn >> 15) & 0x1f;
+  addr = proc->get_state()->XPR[rs1] & 0xffffffffu;
+
+  uint8_t bytes[4] = {};
+  if (!cosim.backdoor_read_mem(addr, sizeof(bytes), bytes)) return false;
+
+  value_before = 0;
+  for (size_t i = 0; i < sizeof(bytes); ++i) {
+    value_before |= static_cast<uint32_t>(bytes[i]) << (8 * i);
+  }
+  return true;
+}
+
+void record_ref_mem_write_if_changed(SpikeCosim &cosim,
+                                     std::vector<RefMemWrite> &writes,
+                                     uint32_t addr,
+                                     uint32_t value_before) {
+  uint8_t bytes[4] = {};
+  if (!cosim.backdoor_read_mem(addr, sizeof(bytes), bytes)) return;
+
+  uint32_t value_after = 0;
+  for (size_t i = 0; i < sizeof(bytes); ++i) {
+    value_after |= static_cast<uint32_t>(bytes[i]) << (8 * i);
+  }
+  if (value_after == value_before) return;
+
+  RefMemWrite write{};
+  write.addr = addr;
+  write.data = value_after;
+  write.be = 0xf;
+  writes.push_back(write);
+}
 
 }  // namespace
 
@@ -172,6 +258,17 @@ bool SpikeCosim::mmio_store(reg_t addr, size_t len, const uint8_t *bytes) {
   bool bus_error = !bus.store(addr, len, bytes);
 
   int tid = active_thread;
+  if (tid >= 0 && tid < num_threads && len > 0 && len <= 4) {
+    RefMemWrite write{};
+    write.addr = static_cast<uint32_t>(addr);
+    write.data = 0;
+    write.be = 0;
+    for (size_t i = 0; i < len; ++i) {
+      write.data |= static_cast<uint32_t>(bytes[i]) << (8 * i);
+      write.be |= 1u << i;
+    }
+    thread_state[tid].ref_mem_writes.push_back(write);
+  }
 
   // EH2 store-buffer coalescing / RMW semantics: store comparison failures
   // must NOT cause Spike to trap.  Reasons:
@@ -745,6 +842,10 @@ void SpikeCosim::initial_proc_setup(int thread_id, uint32_t start_pc,
 
   proc->get_state()->pc = start_pc;
   proc->get_state()->mtvec->write(start_mtvec);
+  proc->put_csr(CSR_MSTATUS,
+                set_field(proc->get_csr(CSR_MSTATUS), MSTATUS_MPP, PRV_M));
+  proc->get_state()->csrmap[CSR_MISA] =
+      std::make_shared<FixedWritableCsr>(proc, CSR_MISA, 0x40001105);
 
   // Set EH2 marchid
   proc->get_state()->csrmap[CSR_MARCHID] =
@@ -800,12 +901,15 @@ void SpikeCosim::initial_proc_setup(int thread_id, uint32_t start_pc,
   };
 
   for (int csr : eh2_init_csrs) {
-    if (proc->get_state()->csrmap.find(csr) ==
-        proc->get_state()->csrmap.end()) {
-      proc->get_state()->csrmap[csr] =
-          std::make_shared<basic_csr_t>(proc, csr, 0);
-    }
+    // Some EH2 custom CSR numbers overlap with upstream Spike CSR models
+    // (for example 0x7c0 cpuctrlsts). Override them with plain storage so
+    // EH2-specific WARL in fixup_csr() is the only behavior in this model.
+    proc->get_state()->csrmap[csr] =
+        std::make_shared<basic_csr_t>(proc, csr, 0);
   }
+
+  proc->get_state()->csrmap[CSR_MCOUNTINHIBIT] =
+      std::make_shared<basic_csr_t>(proc, CSR_MCOUNTINHIBIT, 0);
 }
 
 // ---------------------------------------------------------------
@@ -1027,6 +1131,22 @@ bool SpikeCosim::ref_event_step(int hart) {
   ts.ref_last_insn = insn_32;
   ts.ref_last_trap = false;
   ts.ref_gpr_written_mask = 0;
+  ts.ref_csr_writes.clear();
+  ts.ref_mem_writes.clear();
+
+  uint32_t atomic_store_addr = 0;
+  uint32_t atomic_store_value_before = 0;
+  bool has_host_backed_atomic_store =
+      ref_atomic_store_addr(*this, proc, insn_32, atomic_store_addr,
+                            atomic_store_value_before);
+
+  std::vector<std::pair<uint32_t, uint32_t>> trap_csr_before;
+  for (uint32_t csr : {CSR_MSTATUS, CSR_MEPC, CSR_MCAUSE, CSR_MTVAL}) {
+    try {
+      trap_csr_before.emplace_back(csr, proc->get_csr(csr) & 0xffffffffu);
+    } catch (...) {
+    }
+  }
 
   active_thread = hart;
   try {
@@ -1045,10 +1165,19 @@ bool SpikeCosim::ref_event_step(int hart) {
     return false;
   }
 
+  if (has_host_backed_atomic_store) {
+    record_ref_mem_write_if_changed(*this, ts.ref_mem_writes,
+                                    atomic_store_addr,
+                                    atomic_store_value_before);
+  }
+
   if (proc->get_state()->last_inst_pc == PC_INVALID) {
     if (!(proc->get_state()->mcause->read() & 0x80000000) ||
         proc->get_state()->debug_mode) {
       ts.ref_last_trap = true;
+      for (const auto &before : trap_csr_before) {
+        record_ref_csr_write_if_changed(proc, ts.ref_csr_writes, before);
+      }
       errors.clear();
       ts.insn_cnt++;
       return true;
@@ -1070,6 +1199,10 @@ bool SpikeCosim::ref_event_step(int hart) {
     if ((reg_change.first & 0xf) != 0) {
       if ((reg_change.first & 0xf) == 4) {
         on_csr_write(hart, reg_change);
+        RefCsrWrite write{};
+        write.csr = (reg_change.first >> 4) & 0xfff;
+        write.value = ref_csr(hart, write.csr) & 0xffffffffu;
+        ts.ref_csr_writes.push_back(write);
       }
       continue;
     }
@@ -1078,6 +1211,10 @@ bool SpikeCosim::ref_event_step(int hart) {
     if (gpr != 0) {
       ts.ref_gpr_written_mask |= (1u << gpr);
     }
+  }
+
+  for (const auto &before : trap_csr_before) {
+    record_ref_csr_write_if_changed(proc, ts.ref_csr_writes, before);
   }
 
   errors.clear();
@@ -1142,6 +1279,18 @@ uint64_t SpikeCosim::ref_csr(int hart, int idx) {
 void SpikeCosim::ref_csr_set(int hart, int idx, uint64_t value) {
   if (hart < 0 || hart >= num_threads) return;
   set_csr(idx, static_cast<uint32_t>(value), hart);
+}
+
+const std::vector<RefCsrWrite> &SpikeCosim::ref_csr_writes(int hart) const {
+  static const std::vector<RefCsrWrite> empty;
+  if (hart < 0 || hart >= num_threads) return empty;
+  return thread_state[hart].ref_csr_writes;
+}
+
+const std::vector<RefMemWrite> &SpikeCosim::ref_mem_writes(int hart) const {
+  static const std::vector<RefMemWrite> empty;
+  if (hart < 0 || hart >= num_threads) return empty;
+  return thread_state[hart].ref_mem_writes;
 }
 
 // ---------------------------------------------------------------
@@ -1361,11 +1510,11 @@ void SpikeCosim::fixup_csr(int thread_id, int csr_num, uint32_t csr_val) {
     // Per pair: bit[2n] = sideeffect, bit[2n+1] = cacheable & ~sideeffect
     case 0x7C0: {
       uint32_t fixed = 0;
-      for (int i = 0; i < 16; i++) {
-        uint32_t se   = (csr_val >> (2*i)) & 1;     // sideeffect
-        uint32_t ca   = (csr_val >> (2*i+1)) & 1;    // cacheable
-        fixed |= (se << (2*i));
-        fixed |= ((ca & ~se) << (2*i+1));            // can't be cacheable+sideeffect
+      for (int bit = 31; bit > 0; bit -= 2) {
+        uint32_t side_effect = (csr_val >> bit) & 1;
+        uint32_t cacheable = (csr_val >> (bit - 1)) & 1;
+        fixed |= side_effect << bit;
+        fixed |= (cacheable & ~side_effect) << (bit - 1);
       }
       if (proc->get_state()->csrmap.find(csr_num) ==
           proc->get_state()->csrmap.end()) {
@@ -1385,6 +1534,15 @@ void SpikeCosim::fixup_csr(int thread_id, int csr_num, uint32_t csr_val) {
         proc->get_state()->csrmap[csr_num] =
             std::make_shared<basic_csr_t>(proc, csr_num, 0);
       }
+      proc->get_state()->csrmap[csr_num]->write(fixed);
+      break;
+    }
+
+    // --- mcountinhibit (0x320): HPM6..HPM3, MINSTRET, MCYCLE writable.
+    // Bit 1 and all high bits read zero in EH2.
+    case CSR_MCOUNTINHIBIT: {
+      uint32_t fixed = csr_val & 0x7d;
+      ENSURE_CSR_EXISTS(csr_num);
       proc->get_state()->csrmap[csr_num]->write(fixed);
       break;
     }

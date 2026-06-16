@@ -21,15 +21,28 @@ interface eh2_dut_probe_if #(
   // Division unit signals
   logic [NUM_THREADS-1:0]       div_cancel;             // Division canceled (any kind)
   logic [NUM_THREADS-1:0]       div_cancel_overwrite;   // Cancel due to younger same-rd write (paired with retired div trace)
+  logic [NUM_THREADS-1:0]       div_issue_valid;        // Division accepted by EXU
+  logic [NUM_THREADS-1:0][4:0]  div_issue_rd;           // Division destination at issue
+  logic [NUM_THREADS-1:0][31:0] div_issue_rs1;          // Division dividend at issue
+  logic [NUM_THREADS-1:0][31:0] div_issue_rs2;          // Division divisor at issue
+  logic [NUM_THREADS-1:0]       div_issue_unsigned;     // DIVU/REMU
+  logic [NUM_THREADS-1:0]       div_issue_rem;          // REM/REMU
   logic [NUM_THREADS-1:0][4:0]  div_rd;                 // Division destination register
   logic [NUM_THREADS-1:0][31:0] div_result;             // Division raw result (pre-qualify)
   logic [NUM_THREADS-1:0]       div_wren;               // Division writeback valid (exu_div_wren)
   logic [NUM_THREADS-1:0][31:0] div_wdata;              // Division writeback data (exu_div_result)
 
   // Non-block load signals
+  logic [NUM_THREADS-1:0]       nb_load_alloc_valid;
+  logic [NUM_THREADS-1:0][4:0]  nb_load_alloc_rd;
+  logic [NUM_THREADS-1:0][3:0]  nb_load_alloc_tag;
+  logic [NUM_THREADS-1:0][1:0]  nb_load_retire_tag_valid;
+  logic [NUM_THREADS-1:0][1:0][3:0] nb_load_retire_tag;
   logic [NUM_THREADS-1:0]       nb_load_wen;
   logic [NUM_THREADS-1:0][4:0]  nb_load_waddr;
+  logic [NUM_THREADS-1:0]       nb_load_data_valid;
   logic [NUM_THREADS-1:0][31:0] nb_load_data;
+  logic [NUM_THREADS-1:0][3:0]  nb_load_data_tag;
 
   // Interrupt/NMI/debug state (sampled each cycle for cosim notification)
   logic [NUM_THREADS-1:0][31:0] mip;           // Machine interrupt pending
@@ -79,13 +92,26 @@ interface eh2_dut_probe_if #(
   clocking monitor_cb @(posedge clk);
     input div_cancel;
     input div_cancel_overwrite;
+    input div_issue_valid;
+    input div_issue_rd;
+    input div_issue_rs1;
+    input div_issue_rs2;
+    input div_issue_unsigned;
+    input div_issue_rem;
     input div_rd;
     input div_result;
     input div_wren;
     input div_wdata;
+    input nb_load_alloc_valid;
+    input nb_load_alloc_rd;
+    input nb_load_alloc_tag;
+    input nb_load_retire_tag_valid;
+    input nb_load_retire_tag;
     input nb_load_wen;
     input nb_load_waddr;
+    input nb_load_data_valid;
     input nb_load_data;
+    input nb_load_data_tag;
     input mip;
     input nmi;
     input nmi_int;

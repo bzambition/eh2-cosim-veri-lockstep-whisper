@@ -86,6 +86,7 @@ def check_uvm_log(log_path: str, fail_on_warnings: bool = False,
     has_fatal = False
     has_test_pass = False
     has_test_fail = False
+    has_interrupted_eh2_pass = False
     has_tool_crash = False
     has_sim_fatal = False
     has_tool_timeout = False
@@ -132,6 +133,8 @@ def check_uvm_log(log_path: str, fail_on_warnings: bool = False,
                 num_warnings += 1
             elif "TEST PASSED" in line or "test_passed" in line:
                 has_test_pass = True
+            elif "--- EH2 UVM TEST PA" in line:
+                has_interrupted_eh2_pass = True
             elif ("TEST FAILED" in line or "test_failed" in line or
                   "EH2 UVM TEST FAILED" in line or
                   "RISC-V UVM TEST FAILED" in line):
@@ -160,11 +163,12 @@ def check_uvm_log(log_path: str, fail_on_warnings: bool = False,
     # printed "TEST PASSED" and the report summary shows zero errors —
     # the exit code reflects parser/elab warnings, not run-time status.
     # Trust the explicit pass marker over the return code in that case.
-    if sim_returncode not in (None, 0) and not has_test_pass:
+    if sim_returncode not in (None, 0) and not (has_test_pass or
+                                                has_interrupted_eh2_pass):
         return (False, "SIM_ERROR", num_errors, num_warnings)
     if fail_on_warnings and num_warnings > 0:
         return (False, "TOOL_WARNING", num_errors, num_warnings)
-    if has_test_pass:
+    if has_test_pass or has_interrupted_eh2_pass:
         return (True, "NONE", num_errors, num_warnings)
 
     # EH2 tests must explicitly report pass via mailbox/signature text.

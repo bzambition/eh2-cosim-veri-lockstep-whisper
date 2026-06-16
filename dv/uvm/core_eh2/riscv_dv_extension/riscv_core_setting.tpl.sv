@@ -22,9 +22,7 @@ parameter satp_mode_t SATP_MODE = BARE;
 
 privileged_mode_t supported_privileged_mode[] = {MACHINE_MODE};
 
-// TRACECMP Phase 3 constrains random riscv-dv away from DIV/REM until the
-// RTL retire dump carries every delayed DIV writeback needed for CSV compare.
-riscv_instr_name_t unsupported_instr[] = {DIV, DIVU, REM, REMU};
+riscv_instr_name_t unsupported_instr[] = {};
 
 bit support_unaligned_load_store = 1'b1;
 

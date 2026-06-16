@@ -3,7 +3,7 @@
 //
 // cmd:    veer -target=default_mt -set=build_axi4 
 //
-`define RV_ROOT "/home/ybz/Cores-VeeR-EH2"
+`define RV_ROOT "."
 `define RV_BITMANIP_ZBF 0
 `define RV_BITMANIP_ZBA 1
 `define RV_LSU_STBUF_DEPTH 10

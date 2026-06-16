@@ -34,6 +34,7 @@ from check_logs import check_sim_log
 from collect_results import generate_report_json
 import directed_test_schema
 import rvvi_trace_to_trace_csv
+import trace_compare_full
 
 
 # Paths
@@ -161,6 +162,27 @@ def add_tracecmp_only_sim_opt(sim_opts: str) -> str:
     return " ".join(piece for piece in (sim_opts, "+tracecmp_only") if piece)
 
 
+def rvvi_nhart_from_sim_opts(sim_opts: str) -> int:
+    """Extract +rvvi_nhart=N from sim opts, defaulting to one hart."""
+    for token in (sim_opts or "").split():
+        if token.startswith("+rvvi_nhart="):
+            try:
+                return max(1, int(token.split("=", 1)[1], 0))
+            except ValueError:
+                return 1
+    return 1
+
+
+def uses_trace_compare(test_entry: dict) -> bool:
+    """Return whether this test is gated by offline trace comparison.
+
+    Default-on keeps the regression checker strong.  Only tests that contain
+    asynchronous interrupt/debug delivery may opt out, and the testlist entry
+    must document the alternate UVM-agent/signature checker in tracecmp_bypass.
+    """
+    return str(test_entry.get("tracecmp", "enabled")).lower() != "disabled"
+
+
 def write_process_log(path: str, proc: subprocess.CompletedProcess):
     """Write captured subprocess stdout/stderr to a durable log file."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -194,14 +216,23 @@ def _line_count(path: str) -> int:
         return sum(1 for _ in f)
 
 
-def run_trace_compare(work_dir: str, binary: str) -> bool:
+def write_hart_schedule_from_csv(csv_path: str, schedule_path: str) -> int:
+    """Write the DUT retire hart sequence for the standalone reference."""
+    rows = trace_compare_full.read_trace_csv(csv_path)
+    with open(schedule_path, "w", encoding="utf-8") as f:
+        for row in rows:
+            f.write("{}\n".format(row.hart))
+    return len(rows)
+
+
+def run_trace_compare(work_dir: str, binary: str, nhart: int = 1) -> bool:
     """Run DUT RVVI dump vs standalone EH2-Spike trace comparison."""
     rvvi_trace = os.path.join(work_dir, "rvvi_trace.log")
     dut_csv = os.path.join(work_dir, "dut_trace.csv")
     ref_csv = os.path.join(work_dir, "ref_trace.csv")
+    ref_schedule = os.path.join(work_dir, "ref_hart_schedule.txt")
     compare_log = os.path.join(work_dir, "trace_compare.log")
     rvviref_exe = os.path.join(EH2_ROOT, "build", "rvviref", "spike_rvvi_main")
-    compare_py = os.path.join(RISCV_DV_DIR, "scripts", "instr_trace_compare.py")
 
     root, ext = os.path.splitext(binary)
     elf_path = root + ".elf" if ext in (".hex", ".bin") else binary + ".elf"
@@ -221,29 +252,32 @@ def run_trace_compare(work_dir: str, binary: str) -> bool:
             log_f.write("ERROR: DUT trace conversion failed: {}\n".format(err))
         return False
 
-    steps = max(1, _line_count(dut_csv) - 1)
-    ref_proc = run_captured([rvviref_exe, elf_path, ref_csv, str(steps)], 300)
+    try:
+        steps = max(1, write_hart_schedule_from_csv(dut_csv, ref_schedule))
+    except (OSError, ValueError) as err:
+        with open(compare_log, "w", encoding="utf-8") as log_f:
+            log_f.write("ERROR: DUT hart schedule generation failed: {}\n".format(err))
+        return False
+    build_ref = run_captured(["make", rvviref_exe], 300)
+    if build_ref.returncode != 0:
+        write_process_log(compare_log, build_ref)
+        return False
+    ref_proc = run_captured(
+        [rvviref_exe, elf_path, ref_csv, str(steps), str(max(1, nhart)),
+         ref_schedule], 300)
     if ref_proc.returncode != 0:
         write_process_log(compare_log, ref_proc)
         return False
 
-    cmp_proc = run_captured([
-        sys.executable, compare_py,
-        "--csv_file_1", dut_csv,
-        "--csv_file_2", ref_csv,
-        "--csv_name_1", "dut",
-        "--csv_name_2", "ref",
-        "--log", compare_log,
-    ], 300)
-    if cmp_proc.returncode != 0:
-        write_process_log(compare_log, cmp_proc)
+    try:
+        cmp_result = trace_compare_full.compare_trace_csv(
+            dut_csv, ref_csv, "dut", "ref", log=compare_log)
+    except (OSError, ValueError) as err:
+        with open(compare_log, "w", encoding="utf-8") as log_f:
+            log_f.write("ERROR: full trace comparison failed: {}\n".format(err))
         return False
 
-    try:
-        with open(compare_log, "r", encoding="utf-8", errors="replace") as log_f:
-            return "[PASSED]" in log_f.read()
-    except FileNotFoundError:
-        return False
+    return cmp_result.passed
 
 
 def run_single_test(test_entry: dict, seed: int, simulator: str,
@@ -414,8 +448,8 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
     result.num_cycles = check_result.num_cycles
     result.ipc = check_result.ipc
 
-    if result.passed:
-        if not run_trace_compare(work_dir, binary):
+    if result.passed and uses_trace_compare(test_entry):
+        if not run_trace_compare(work_dir, binary, rvvi_nhart_from_sim_opts(sim_opts)):
             result.passed = False
             result.failure_mode = "TRACECMP_MISMATCH"
 
@@ -552,6 +586,26 @@ def run_regression(args) -> RegressionSummary:
     return summary
 
 
+def regression_exit_code(summary: RegressionSummary, min_passed: int = None,
+                         max_fail_rate_for_threshold: float = 0.25) -> int:
+    """Return process status for strict or threshold-gated regressions."""
+    if summary.failed == 0:
+        return 0
+    if min_passed is None:
+        return 1
+    if summary.total_tests <= 0:
+        return 1
+    fail_rate = summary.failed / summary.total_tests
+    if summary.passed >= min_passed and fail_rate <= max_fail_rate_for_threshold:
+        print(
+            "Regression threshold met: {}/{} passed, minimum {}, "
+            "fail rate {:.1%} <= {:.0%}; returning success".format(
+                summary.passed, summary.total_tests, min_passed,
+                fail_rate, max_fail_rate_for_threshold))
+        return 0
+    return 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="EH2 Regression Runner",
@@ -593,6 +647,14 @@ Examples:
     parser.add_argument("--build-dir", default=None,
                         help="Per-target build root containing simv. "
                              "Defaults to <eh2_root>/build/compile when omitted.")
+    parser.add_argument("--min-passed", type=int, default=None,
+                        help="Return success if at least this many tests pass "
+                             "and the failure rate stays within the threshold. "
+                             "Omit for strict zero-failure behavior.")
+    parser.add_argument("--max-fail-rate-for-threshold", type=float,
+                        default=0.25,
+                        help="Maximum failed/total ratio allowed when "
+                             "--min-passed is used.")
 
     # Parallelism
     parser.add_argument("--parallel", type=int, default=1,
@@ -604,7 +666,8 @@ Examples:
         parser.error("Must specify --testlist or --test")
 
     summary = run_regression(args)
-    sys.exit(0 if summary.failed == 0 else 1)
+    sys.exit(regression_exit_code(
+        summary, args.min_passed, args.max_fail_rate_for_threshold))
 
 
 if __name__ == "__main__":

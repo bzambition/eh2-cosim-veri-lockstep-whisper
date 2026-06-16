@@ -1,7 +1,7 @@
 // EH2 NC/Incisive Coverage Configuration File (CCF)
 // 对齐 lowRISC Ibex / OpenTitan 工业实现：
-//   - /home/host/ibex/vendor/lowrisc_ip/dv/tools/xcelium/common.ccf
-//   - /home/host/ibex/vendor/lowrisc_ip/dv/tools/xcelium/cover.ccf
+//   - ibex/vendor/lowrisc_ip/dv/tools/xcelium/common.ccf
+//   - ibex/vendor/lowrisc_ip/dv/tools/xcelium/cover.ccf
 // 这两个文件是 OpenTitan 项目维护的 Xcelium 工业基线（注释中提到 Xcelium 自带的
 // ${XCELIUM_HOME}/tools/icc/include/all_coverage.ccf）。我们将其工业精髓移植到
 // NC/Incisive 152 这套较老但仍工业级的工具上（Incisive 是 Xcelium 的前身，

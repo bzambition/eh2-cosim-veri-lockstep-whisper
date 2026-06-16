@@ -220,9 +220,8 @@ class core_eh2_directed_test extends core_eh2_base_test;
     // Verify dcsr.cause indicates halt request (cause = 3)
     check_dcsr_cause(DBG_CAUSE_HALTREQ);
 
-    // Resume from debug mode
-    eh2_jtag_seq::send_write(jtag_seqr,
-      eh2_jtag_seq_item::DMI_DMCONTROL, 32'h40000000);
+    // Resume from debug mode while keeping dmactive asserted.
+    send_debug_resume(jtag_seqr);
 
     `uvm_info(test_name, "Debug resume sent", UVM_LOW)
   endtask
@@ -589,8 +588,7 @@ class core_eh2_stress_test extends core_eh2_base_test;
           eh2_jtag_seq::send_write(env.jtag_agent.sequencer,
             eh2_jtag_seq_item::DMI_DMCONTROL, 32'h80000001);
           #($urandom_range(20, 200) * 10ns);
-          eh2_jtag_seq::send_write(env.jtag_agent.sequencer,
-            eh2_jtag_seq_item::DMI_DMCONTROL, 32'h40000000);
+          send_debug_resume(env.jtag_agent.sequencer);
         end
       end
     join_none
@@ -648,12 +646,13 @@ class core_eh2_timer_irq_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Timer IRQ test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_timer_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -687,12 +686,13 @@ class core_eh2_soft_irq_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Software IRQ test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_soft_irq_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -726,12 +726,13 @@ class core_eh2_nmi_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "NMI test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_nmi_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -766,12 +767,13 @@ class core_eh2_nested_irq_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Nested IRQ test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_nested_irq_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -809,12 +811,13 @@ class core_eh2_debug_stress_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Debug stress test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_debug_stress();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -825,8 +828,7 @@ class core_eh2_debug_stress_test extends core_eh2_base_test;
       eh2_jtag_seq::send_write(env.jtag_agent.sequencer,
         eh2_jtag_seq_item::DMI_DMCONTROL, 32'h80000001);
       #($urandom_range(10, 100) * 10ns);
-      eh2_jtag_seq::send_write(env.jtag_agent.sequencer,
-        eh2_jtag_seq_item::DMI_DMCONTROL, 32'h40000000);
+      send_debug_resume(env.jtag_agent.sequencer);
     end
   endtask
 
@@ -847,12 +849,13 @@ class core_eh2_debug_step_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Debug step test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_debug_step();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -870,9 +873,9 @@ class core_eh2_debug_step_test extends core_eh2_base_test;
     eh2_jtag_seq::send_write(env.jtag_agent.sequencer,
       eh2_jtag_seq_item::DMI_DMCONTROL, 32'h40000001);
     #5000ns;
-    // Full resume
+    // Clear step resume while keeping dmactive asserted.
     eh2_jtag_seq::send_write(env.jtag_agent.sequencer,
-      eh2_jtag_seq_item::DMI_DMCONTROL, 32'h40000000);
+      eh2_jtag_seq_item::DMI_DMCONTROL, 32'h00000001);
   endtask
 
 endclass
@@ -1374,12 +1377,13 @@ class core_eh2_debug_wfi_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Debug WFI test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_debug_wfi_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1393,8 +1397,7 @@ class core_eh2_debug_wfi_test extends core_eh2_base_test;
         eh2_jtag_seq_item::DMI_DMCONTROL, 32'h80000001);
       #($urandom_range(100, 500) * 10ns);
       // Resume
-      eh2_jtag_seq::send_write(env.jtag_agent.sequencer,
-        eh2_jtag_seq_item::DMI_DMCONTROL, 32'h40000000);
+      send_debug_resume(env.jtag_agent.sequencer);
     end
   endtask
 
@@ -1416,12 +1419,13 @@ class core_eh2_debug_csr_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Debug CSR test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_debug_csr_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1433,8 +1437,7 @@ class core_eh2_debug_csr_test extends core_eh2_base_test;
       eh2_jtag_seq::send_write(env.jtag_agent.sequencer,
         eh2_jtag_seq_item::DMI_DMCONTROL, 32'h80000001);
       #($urandom_range(50, 200) * 10ns);
-      eh2_jtag_seq::send_write(env.jtag_agent.sequencer,
-        eh2_jtag_seq_item::DMI_DMCONTROL, 32'h40000000);
+      send_debug_resume(env.jtag_agent.sequencer);
     end
   endtask
 
@@ -1462,11 +1465,12 @@ class core_eh2_debug_ebreak_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Debug EBREAK test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1488,12 +1492,13 @@ class core_eh2_irq_wfi_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "IRQ WFI test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_irq_wfi_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1530,12 +1535,13 @@ class core_eh2_irq_csr_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "IRQ CSR test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_irq_csr_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1578,12 +1584,13 @@ class core_eh2_irq_nest_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "IRQ nest test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_nested_irq_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1631,12 +1638,13 @@ class core_eh2_irq_in_debug_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "IRQ in debug test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_irq_in_debug_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1679,12 +1687,13 @@ class core_eh2_debug_in_irq_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Debug in IRQ test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_debug_in_irq_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1729,11 +1738,12 @@ class core_eh2_dret_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "DRET test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1761,11 +1771,12 @@ class core_eh2_debug_ebreakmu_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Debug EBREAKMU test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1793,12 +1804,13 @@ class core_eh2_single_debug_pulse_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Single debug pulse test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_single_debug_pulse();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1833,11 +1845,12 @@ class core_eh2_invalid_csr_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Invalid CSR test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 
@@ -1865,12 +1878,13 @@ class core_eh2_fetch_en_chk_test extends core_eh2_base_test;
     phase.raise_objection(this);
     `uvm_info(test_name, "Fetch enable check test started", UVM_LOW)
     load_binary_to_mem();
+    start_vseq();
     fork
       run_fetch_en_stimulus();
-      start_vseq();
       wait_for_completion(phase);
     join_any
     disable fork;
+    if (vseq != null) vseq.stop();
     phase.drop_objection(this);
   endtask
 

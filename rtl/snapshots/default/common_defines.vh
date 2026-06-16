@@ -5,7 +5,7 @@
 //
 // cmd:    veer -target=default -set=build_axi4 
 //
-`define RV_ROOT "/home/ybz/Cores-VeeR-EH2"
+`define RV_ROOT "."
 `define RV_ICACHE_BANKS_WAY 2
 `define RV_ICACHE_BANK_LO 3
 `define RV_ICACHE_NUM_BEATS 8

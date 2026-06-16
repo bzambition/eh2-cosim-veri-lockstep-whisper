@@ -165,6 +165,20 @@ class core_eh2_base_test extends uvm_test;
     tb_vif.wait_clks(5);
   endtask
 
+  virtual task send_debug_resume(
+    uvm_sequencer #(eh2_jtag_seq_item) jtag_seqr = null,
+    int unsigned clear_delay_ns = 1200
+  );
+    if (jtag_seqr == null)
+      jtag_seqr = env.jtag_agent.sequencer;
+
+    eh2_jtag_seq::send_write(jtag_seqr,
+      eh2_jtag_seq_item::DMI_DMCONTROL, 32'h40000001);
+    #(clear_delay_ns * 1ns);
+    eh2_jtag_seq::send_write(jtag_seqr,
+      eh2_jtag_seq_item::DMI_DMCONTROL, 32'h00000001);
+  endtask
+
   // =========================================================================
   // ISA String Construction
   // =========================================================================

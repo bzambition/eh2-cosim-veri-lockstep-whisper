@@ -300,6 +300,11 @@ def summary_from_report_json(report_path: Path) -> RegressionSummary:
     return summary
 
 
+RECORDED_ONLY_FAILURE_MODES = {
+    "TRACECMP_MISMATCH",
+}
+
+
 def refresh_failure_classification(summary: RegressionSummary):
     """Reclassify archived results with the current log checker.
 
@@ -311,7 +316,18 @@ def refresh_failure_classification(summary: RegressionSummary):
             continue
         if not os.path.exists(trr.sim_log_path):
             continue
+        recorded_failed = (
+            not trr.passed and
+            (trr.failure_mode or "") in RECORDED_ONLY_FAILURE_MODES
+        )
         checked = check_sim_log(trr.sim_log_path)
+        if recorded_failed and checked.passed:
+            trr.uvm_errors = checked.uvm_errors
+            trr.uvm_warnings = checked.uvm_warnings
+            trr.num_instructions = checked.num_instructions
+            trr.num_cycles = checked.num_cycles
+            trr.ipc = checked.ipc
+            continue
         trr.passed = checked.passed
         trr.failure_mode = checked.failure_mode
         trr.uvm_errors = checked.uvm_errors
