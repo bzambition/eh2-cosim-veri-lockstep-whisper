@@ -216,7 +216,6 @@ spike:
 cosim: $(LIBCOSIM)
 
 $(LIBCOSIM): $(COSIM_DIR)/spike_cosim.cc \
-             $(COSIM_DIR)/spike_rvvi.cc $(COSIM_DIR)/spike_rvvi.h \
              $(COSIM_DIR)/spike_cosim.h | $(BUILD_DIR)
 	@if [ -z "$(SPIKE_DIR)" ] || [ ! -d "$(SPIKE_INSTALL)" ]; then \
 	  echo "ERROR: SPIKE_INSTALL=$(SPIKE_INSTALL) 不存在。请先运行 make spike。"; exit 1; fi
@@ -236,7 +235,7 @@ $(LIBCOSIM): $(COSIM_DIR)/spike_cosim.cc \
 	  -Ivendor/rvvi/include/host/rvvi \
 	  -I$(SVDPI_INCLUDE_DIR) $(SPIKE_CXXFLAGS) \
 	  -o $(LIBCOSIM) \
-	  $(COSIM_DIR)/spike_cosim.cc $(COSIM_DIR)/spike_rvvi.cc \
+	  $(COSIM_DIR)/spike_cosim.cc \
 	  -L$(SPIKE_BUILD) -lspike_all \
 	  $(SPIKE_DIR)/build/libsoftfloat.a \
 	  -lpthread -ldl
@@ -259,8 +258,8 @@ rvviref: asm $(RVVIREF_EXE)
 $(SPIKE_INSTALL)/lib/libriscv.a:
 	@$(MAKE) --no-print-directory spike
 
-$(RVVIREF_EXE): $(COSIM_DIR)/spike_rvvi_main.cc $(COSIM_DIR)/spike_rvvi.cc \
-                $(COSIM_DIR)/spike_rvvi.h $(COSIM_DIR)/spike_cosim.cc \
+$(RVVIREF_EXE): $(COSIM_DIR)/spike_rvvi_main.cc \
+                $(COSIM_DIR)/spike_cosim.cc \
                 $(COSIM_DIR)/spike_cosim.h $(SPIKE_INSTALL)/lib/libriscv.a | $(BUILD_DIR)
 	@if [ -z "$(SPIKE_DIR)" ] || [ ! -d "$(SPIKE_INSTALL)" ]; then \
 	  echo "ERROR: SPIKE_INSTALL=$(SPIKE_INSTALL) 不存在。请先运行 make spike。"; exit 1; fi
@@ -277,8 +276,7 @@ $(RVVIREF_EXE): $(COSIM_DIR)/spike_rvvi_main.cc $(COSIM_DIR)/spike_rvvi.cc \
 	  -I$(SPIKE_INSTALL)/include -I$(SPIKE_INSTALL)/include/softfloat \
 	  $(SPIKE_CXXFLAGS) \
 	  -o $(RVVIREF_EXE) \
-	  $(COSIM_DIR)/spike_rvvi_main.cc $(COSIM_DIR)/spike_rvvi.cc \
-	  $(COSIM_DIR)/spike_cosim.cc \
+	  $(COSIM_DIR)/spike_rvvi_main.cc $(COSIM_DIR)/spike_cosim.cc \
 	  -L$(SPIKE_BUILD) -lspike_all \
 	  $(SPIKE_DIR)/build/libsoftfloat.a \
 	  -lpthread -ldl

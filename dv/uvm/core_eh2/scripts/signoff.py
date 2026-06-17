@@ -920,9 +920,21 @@ def write_markdown_report(status: Dict, path: Path):
     lines.append("")
     lines.append("- Status: {}".format(coverage["status"]))
     if coverage["metrics"]:
+        thresholds = coverage.get("thresholds", {}) or {}
+        lines.append("")
+        lines.append("| Metric | Value | Gate | Threshold |")
+        lines.append("|---|---:|---|---:|")
         for metric in sorted(coverage["metrics"]):
-            lines.append("- {}: {:.2f}%".format(metric,
-                                                coverage["metrics"][metric]))
+            value = coverage["metrics"][metric]
+            threshold = float(thresholds.get(metric, 0.0) or 0.0)
+            if threshold > 0.0:
+                gate = "gated"
+                threshold_text = "{:.2f}%".format(threshold)
+            else:
+                gate = "collected but ungated"
+                threshold_text = "-"
+            lines.append("| {} | {:.2f}% | {} | {} |".format(
+                metric, value, gate, threshold_text))
     else:
         lines.append("- No parsed coverage metrics.")
     lines.append("")

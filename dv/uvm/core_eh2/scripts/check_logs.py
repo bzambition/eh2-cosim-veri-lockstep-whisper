@@ -51,8 +51,7 @@ TOOL_CRASH_RE = re.compile(
     re.IGNORECASE)
 SIM_FATAL_RE = re.compile(
     r"(^\s*(Fatal:|\*\*\s*Fatal:|\$fatal\b)|"
-    r"^\s*Error:\s+\"[^\"]+\.(sv|svh|v|vh)\"|"
-    r"RVVI_SCOREBOARD:\s+online lockstep failed)",
+    r"^\s*Error:\s+\"[^\"]+\.(sv|svh|v|vh)\")",
     re.IGNORECASE)
 TOOL_TIMEOUT_RE = re.compile(
     r"(Command timed out|Simulation timeout|Wall-clock timeout)",

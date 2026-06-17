@@ -1088,37 +1088,6 @@ module core_eh2_tb_top;
   );
 
   //--------------------------------------------------------------------------
-  // RVVI-API online lockstep scoreboard (MR3a smoke scope)
-  //--------------------------------------------------------------------------
-  eh2_rvvi_scoreboard #(
-    .NHART  (`RVVI_NHART),
-    .RETIRE (2),
-    .XLEN   (32),
-    .ILEN   (32)
-  ) u_rvvi_scoreboard (
-    .clk                  (core_clk),
-    .rst_l                (rst_l),
-    .test_done            (mailbox_test_done),
-    .nb_load_wen          (dut_probe_intf.nb_load_wen),
-    .nb_load_waddr        (dut_probe_intf.nb_load_waddr),
-    .nb_load_data         (dut_probe_intf.nb_load_data),
-    .div_wren             (dut_probe_intf.div_wren),
-    .div_rd               (dut_probe_intf.div_rd),
-    .div_wdata            (dut_probe_intf.div_wdata),
-    .div_cancel           (dut_probe_intf.div_cancel),
-    .div_cancel_overwrite (dut_probe_intf.div_cancel_overwrite),
-    .div_result           (dut_probe_intf.div_result),
-    .mip                  (dut_probe_intf.mip),
-    .nmi                  (dut_probe_intf.nmi),
-    .debug_req            (dut_probe_intf.debug_req),
-    .lsu_bus_write        (lsu_bus_write),
-    .lsu_bus_addr         (lsu_bus_addr),
-    .lsu_bus_wdata        (lsu_bus_wdata),
-    .lsu_bus_wmask        (lsu_bus_wmask),
-    .rvvi                 (rvvi)
-  );
-
-  //--------------------------------------------------------------------------
   // IRQ Interface Instance (for interrupt stimulus)
   //--------------------------------------------------------------------------
   eh2_irq_intf #(

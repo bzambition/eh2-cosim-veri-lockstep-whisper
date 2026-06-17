@@ -3,9 +3,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <vector>
 
-#include "spike_rvvi.h"
+#include "spike_cosim.h"
 
 namespace {
 
@@ -47,21 +48,45 @@ bool read_hart_schedule(const char *path, std::vector<uint32_t> *schedule) {
   return true;
 }
 
-bool write_ref_row(FILE *fp, uint32_t hart, int step) {
-  if (!rvviRefEventStep(hart)) {
-    std::fprintf(stderr, "rvviRefEventStep(step=%d,hart=%u) failed: %s\n",
-                 step, hart, rvviErrorGet());
+constexpr uint32_t kDefaultRamBase = 0x80000000u;
+constexpr uint32_t kDefaultRamSize = 256u * 1024u * 1024u;
+constexpr uint32_t kDefaultLowZeroBase = 0x00000000u;
+constexpr uint32_t kDefaultLowZeroSize = 4u * 1024u;
+constexpr uint32_t kDefaultMailboxBase = 0xd0580000u;
+constexpr uint32_t kDefaultMailboxSize = 4u * 1024u;
+constexpr uint32_t kDefaultDccmBase = 0xf0040000u;
+constexpr uint32_t kDefaultDccmSize = 64u * 1024u;
+
+std::unique_ptr<SpikeCosim> create_ref(uint32_t nhart) {
+  auto ref = std::make_unique<SpikeCosim>(
+      "rv32imac_zba_zbb_zbc_zbs", kDefaultRamBase, 0, "", 0, 0, 0,
+      static_cast<int>(nhart));
+  ref->add_memory(kDefaultRamBase, kDefaultRamSize);
+  ref->add_memory(kDefaultLowZeroBase, kDefaultLowZeroSize);
+  ref->add_memory(kDefaultMailboxBase, kDefaultMailboxSize);
+  ref->add_memory(kDefaultDccmBase, kDefaultDccmSize);
+  return ref;
+}
+
+bool write_ref_row(SpikeCosim &ref, FILE *fp, uint32_t hart, int step) {
+  if (!ref.ref_event_step(static_cast<int>(hart))) {
+    const auto &errors = ref.get_errors();
+    const char *error = errors.empty() ? "unknown error" : errors.back().c_str();
+    std::fprintf(stderr, "ref_event_step(step=%d,hart=%u) failed: %s\n",
+                 step, hart, error);
     return false;
   }
 
-  uint32_t gpr_mask = rvviRefGprsWrittenGet(hart);
+  uint32_t gpr_mask = ref.ref_gpr_written_mask(static_cast<int>(hart));
   char gpr_buf[512] = {};
   size_t off = 0;
   for (uint32_t reg = 1; reg < 32; ++reg) {
     if (((gpr_mask >> reg) & 1u) == 0) continue;
     int n = std::snprintf(gpr_buf + off, sizeof(gpr_buf) - off,
                           "%s%s:%08x", off ? ";" : "", gpr_name(reg),
-                          static_cast<uint32_t>(rvviRefGprGet(hart, reg)));
+                          static_cast<uint32_t>(
+                              ref.ref_gpr(static_cast<int>(hart),
+                                          static_cast<int>(reg))));
     if (n < 0) break;
     off += static_cast<size_t>(n);
     if (off >= sizeof(gpr_buf)) {
@@ -70,16 +95,14 @@ bool write_ref_row(FILE *fp, uint32_t hart, int step) {
     }
   }
 
-  uint32_t csr_indices[64] = {};
-  uint64_t csr_values[64] = {};
-  uint32_t csr_count = eh2RefCsrWritesGet(hart, csr_indices, csr_values, 64);
+  const auto &csr_writes = ref.ref_csr_writes(static_cast<int>(hart));
   char csr_buf[1024] = {};
   off = 0;
-  for (uint32_t idx = 0; idx < csr_count; ++idx) {
+  for (const auto &csr_write : csr_writes) {
     int n = std::snprintf(csr_buf + off, sizeof(csr_buf) - off,
                           "%s%03x:%08x", off ? ";" : "",
-                          csr_indices[idx] & 0xfffu,
-                          static_cast<uint32_t>(csr_values[idx]));
+                          csr_write.csr & 0xfffu,
+                          static_cast<uint32_t>(csr_write.value));
     if (n < 0) break;
     off += static_cast<size_t>(n);
     if (off >= sizeof(csr_buf)) {
@@ -88,19 +111,17 @@ bool write_ref_row(FILE *fp, uint32_t hart, int step) {
     }
   }
 
-  uint64_t mem_addr[16] = {};
-  uint64_t mem_data[16] = {};
-  uint32_t mem_be[16] = {};
-  uint32_t mem_count = eh2RefMemWritesGet(hart, mem_addr, mem_data, mem_be, 16);
+  const auto &mem_writes = ref.ref_mem_writes(static_cast<int>(hart));
   char operand_buf[1024] = {};
   off = static_cast<size_t>(std::snprintf(operand_buf, sizeof(operand_buf),
                                           "hart=%u", hart));
-  for (uint32_t idx = 0; idx < mem_count && off < sizeof(operand_buf); ++idx) {
+  for (const auto &mem_write : mem_writes) {
+    if (off >= sizeof(operand_buf)) break;
     int n = std::snprintf(operand_buf + off, sizeof(operand_buf) - off,
                           ";mem=%08x:%08x:%x",
-                          static_cast<uint32_t>(mem_addr[idx]),
-                          static_cast<uint32_t>(mem_data[idx]),
-                          mem_be[idx]);
+                          mem_write.addr,
+                          mem_write.data,
+                          mem_write.be);
     if (n < 0) break;
     off += static_cast<size_t>(n);
     if (off >= sizeof(operand_buf)) {
@@ -109,12 +130,20 @@ bool write_ref_row(FILE *fp, uint32_t hart, int step) {
     }
   }
 
-  std::fprintf(fp, "%08x,,", static_cast<uint32_t>(rvviRefPcGet(hart)));
+  std::fprintf(fp, "%08x,,",
+               static_cast<uint32_t>(ref.ref_pc(static_cast<int>(hart))));
   write_csv_escaped(fp, gpr_buf);
   std::fprintf(fp, ",");
   write_csv_escaped(fp, csr_buf);
   std::fprintf(fp, ",%08x,3,,",
-               static_cast<uint32_t>(rvviRefInsBinGet(hart)));
+               static_cast<uint32_t>(
+                   ref.ref_insn_bin(static_cast<int>(hart))));
+  if (ref.ref_last_trap(static_cast<int>(hart)) &&
+      off < sizeof(operand_buf)) {
+    int n = std::snprintf(operand_buf + off, sizeof(operand_buf) - off,
+                          "%strap=1", off ? ";" : "");
+    if (n > 0) off += static_cast<size_t>(n);
+  }
   write_csv_escaped(fp, operand_buf);
   std::fprintf(fp, ",\n");
   return true;
@@ -143,24 +172,17 @@ int main(int argc, char **argv) {
     steps = static_cast<int>(schedule.size());
   }
 
-  if (!rvviVersionCheck(RVVI_API_VERSION)) {
-    std::fprintf(stderr, "RVVI API version mismatch\n");
-    return 1;
-  }
-  if (!rvviRefConfigSetInt(kRvviConfigNumHarts, nhart)) {
-    std::fprintf(stderr, "rvviRefConfigSetInt(nhart=%u) failed: %s\n",
-                 nhart, rvviErrorGet());
-    return 1;
-  }
-  if (!rvviRefInit(program)) {
-    std::fprintf(stderr, "rvviRefInit failed: %s\n", rvviErrorGet());
+  auto ref = create_ref(nhart);
+  if (!ref->ref_load_elf(program)) {
+    const auto &errors = ref->get_errors();
+    const char *error = errors.empty() ? "unknown error" : errors.back().c_str();
+    std::fprintf(stderr, "ref_load_elf failed: %s\n", error);
     return 1;
   }
 
   FILE *fp = std::fopen(trace, "w");
   if (!fp) {
     std::perror(trace);
-    rvviRefShutdown();
     return 1;
   }
 
@@ -172,21 +194,18 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "hart_schedule[%zu]=%u exceeds nhart=%u\n",
                      i, hart, nhart);
         std::fclose(fp);
-        rvviRefShutdown();
         return 1;
       }
-      if (!write_ref_row(fp, hart, static_cast<int>(i))) {
+      if (!write_ref_row(*ref, fp, hart, static_cast<int>(i))) {
         std::fclose(fp);
-        rvviRefShutdown();
         return 1;
       }
     }
   } else {
     for (int i = 0; i < steps; ++i) {
       for (uint32_t hart = 0; hart < nhart; ++hart) {
-        if (!write_ref_row(fp, hart, i)) {
+        if (!write_ref_row(*ref, fp, hart, i)) {
           std::fclose(fp);
-          rvviRefShutdown();
           return 1;
         }
       }
@@ -194,6 +213,5 @@ int main(int argc, char **argv) {
   }
 
   std::fclose(fp);
-  rvviRefShutdown();
   return 0;
 }

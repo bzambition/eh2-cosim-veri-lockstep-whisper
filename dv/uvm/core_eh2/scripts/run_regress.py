@@ -196,14 +196,6 @@ def add_rvvi_trace_dump_sim_opts(sim_opts: str, trace_path: str) -> str:
     return " ".join(piece for piece in pieces if piece)
 
 
-def add_tracecmp_only_sim_opt(sim_opts: str) -> str:
-    """Disable online RVVI lockstep so offline tracecmp owns pass/fail."""
-    sim_opts = (sim_opts or "").strip()
-    if "+tracecmp_only" in sim_opts:
-        return sim_opts
-    return " ".join(piece for piece in (sim_opts, "+tracecmp_only") if piece)
-
-
 def rvvi_nhart_from_sim_opts(sim_opts: str) -> int:
     """Extract +rvvi_nhart=N from sim opts, defaulting to one hart."""
     for token in (sim_opts or "").split():
@@ -447,7 +439,6 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
         sim_opts = add_rvvi_elf_sim_opt(sim_opts, binary)
         sim_opts = add_rvvi_trace_dump_sim_opts(
             sim_opts, os.path.join(work_dir, "rvvi_trace.log"))
-    sim_opts = add_tracecmp_only_sim_opt(sim_opts)
 
     # Step 3: Run RTL simulation
     sim_start = time.time()

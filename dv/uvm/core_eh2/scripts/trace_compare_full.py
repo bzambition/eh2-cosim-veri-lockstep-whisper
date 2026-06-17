@@ -3,7 +3,7 @@
 """Core-agnostic offline architectural trace comparison.
 
 The riscv-dv comparator used by upstream flows only checks GPR updates.  This
-comparator is intentionally independent of EH2: it consumes generic trace CSV
+comparator is intentionally core-agnostic: it consumes generic trace CSV
 columns and optional metadata in the standard ``pad`` column:
 
   pc,instr,gpr,csr,binary,mode,instr_str,operand,pad

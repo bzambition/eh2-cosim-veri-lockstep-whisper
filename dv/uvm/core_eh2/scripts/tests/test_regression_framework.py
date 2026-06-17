@@ -199,12 +199,13 @@ class RegressionFrameworkTest(unittest.TestCase):
 
         self.assertEqual(sim_opts, "+rvvi_trace_dump +rvvi_trace_file=custom.log")
 
-    def test_tracecmp_only_sim_opt_is_added_once(self):
-        sim_opts = run_regress.add_tracecmp_only_sim_opt("+foo=1")
+    def test_trace_compare_flow_does_not_use_legacy_disable_plusarg(self):
+        self.assertFalse(hasattr(run_regress, "add_trace" + "cmp_only_sim_opt"))
+        run_regress_text = Path(run_regress.__file__).read_text(encoding="utf-8")
+        run_rtl_text = Path(run_rtl.__file__).read_text(encoding="utf-8")
 
-        self.assertEqual(sim_opts, "+foo=1 +tracecmp_only")
-        self.assertEqual(run_regress.add_tracecmp_only_sim_opt(sim_opts),
-                         sim_opts)
+        self.assertNotIn("+tracecmp_" + "only", run_regress_text)
+        self.assertNotIn("+tracecmp_" + "only", run_rtl_text)
 
     def test_rvvi_nhart_is_parsed_from_sim_opts(self):
         self.assertEqual(run_regress.rvvi_nhart_from_sim_opts(""), 1)
@@ -213,102 +214,76 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertEqual(
             run_regress.rvvi_nhart_from_sim_opts("+rvvi_nhart=bad"), 1)
 
-    def test_rvvi_scoreboard_mismatch_is_fatal(self):
-        scoreboard = (
+    def test_online_scoreboard_is_not_part_of_tb_build(self):
+        scoreboard_path = (
             SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-            "eh2_rvvi_scoreboard.sv").read_text(encoding="utf-8")
-
-        self.assertIn("RVVI_METRIC_ERRORS", scoreboard)
-        self.assertIn("saw_error", scoreboard)
-        self.assertIn('$fatal(1, "RVVI_SCOREBOARD: online lockstep failed")',
-                      scoreboard)
-
-    def test_rvvi_scoreboard_stages_async_writebacks_before_compare(self):
-        scoreboard = (
-            SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-            "eh2_rvvi_scoreboard.sv").read_text(encoding="utf-8")
+            ("eh2_rvvi_" + "scoreboard.sv"))
         tb_top = (SCRIPT_DIR.parent / "tb" /
                   "core_eh2_tb_top.sv").read_text(encoding="utf-8")
+        tb_f = (SCRIPT_DIR.parent / "eh2_tb.f").read_text(encoding="utf-8")
 
-        self.assertIn("pending_retire_q", scoreboard)
-        self.assertIn("async_wb_q", scoreboard)
-        self.assertIn("nb_load_wen", scoreboard)
-        self.assertIn("needs_async_wb", scoreboard)
-        self.assertIn("try_consume_async_wb", scoreboard)
-        self.assertIn("rvviDutGprSet(retire_evt.hart, async_hint.rd",
-                      scoreboard)
+        self.assertFalse(scoreboard_path.exists())
+        self.assertNotIn("eh2_rvvi_" + "scoreboard", tb_top)
+        self.assertNotIn("eh2_rvvi_" + "scoreboard", tb_f)
+        self.assertNotIn("rvvi" + "ApiPkg", tb_f)
+
+    def test_rvvi_adapter_keeps_async_sideband_capture_for_trace_dump(self):
+        tb_top = (SCRIPT_DIR.parent / "tb" /
+                  "core_eh2_tb_top.sv").read_text(encoding="utf-8")
+        adapter = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
+                   "eh2_rvvi_adapter.sv").read_text(encoding="utf-8")
+
+        self.assertIn("eh2_rvvi_adapter", tb_top)
         self.assertIn(".nb_load_wen", tb_top)
         self.assertIn("dut_probe_intf.nb_load_wen", tb_top)
         self.assertIn(".div_wren", tb_top)
         self.assertIn("dut_probe_intf.div_wren", tb_top)
+        self.assertIn("nb_load_wen", adapter)
+        self.assertIn("div_wren", adapter)
 
-    def test_rvvi_traps_are_stepped_not_skipped(self):
-        scoreboard = (
-            SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-            "eh2_rvvi_scoreboard.sv").read_text(encoding="utf-8")
-        spike_rvvi = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                      "spike_rvvi.cc").read_text(encoding="utf-8")
+    def test_ref_trace_uses_spike_cosim_trap_state_without_dpi_wrapper(self):
+        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
         spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
                        "spike_cosim.cc").read_text(encoding="utf-8")
 
-        self.assertIn("rvviDutTrap(retire_evt.hart", scoreboard)
-        self.assertIn("rvviRefEventStep(retire_evt.hart)", scoreboard)
-        self.assertNotIn("MR3a is smoke-only: no async/trap lockstep",
-                         scoreboard)
-        self.assertIn("g_dut[hartId].trap = true", spike_rvvi)
+        self.assertIn("ref_event_step", rvviref)
+        self.assertIn("ref_last_trap", rvviref)
         self.assertIn("ref_last_trap", spike_cosim)
-        self.assertIn("RVVI_METRIC_TRAPS", spike_rvvi)
+        self.assertNotIn("rvvi" + "Ref", rvviref)
 
-    def test_rvvi_standard_csr_compare_is_enabled_by_default(self):
-        spike_rvvi = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                      "spike_rvvi.cc").read_text(encoding="utf-8")
+    def test_ref_trace_reads_csr_writes_from_spike_cosim(self):
+        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
+        spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                       "spike_cosim.cc").read_text(encoding="utf-8")
 
-        self.assertIn("enable_standard_csr_compare()", spike_rvvi)
-        self.assertIn("kComparedCsrs", spike_rvvi)
+        self.assertIn("ref_csr_writes", rvviref)
+        self.assertIn("record_ref_csr_write_if_changed", spike_cosim)
         for csr in ("CSR_MSTATUS", "CSR_MTVEC", "CSR_MEPC", "CSR_MCAUSE",
-                    "CSR_MTVAL", "CSR_MIP"):
-            self.assertIn(csr, spike_rvvi)
-        self.assertIn("g_csr_compare_enable[hart][csr] = true", spike_rvvi)
+                    "CSR_MTVAL"):
+            self.assertIn(csr, spike_cosim)
 
-    def test_rvvi_scoreboard_surfaces_async_nets_and_bus_writes(self):
-        scoreboard = (
-            SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-            "eh2_rvvi_scoreboard.sv").read_text(encoding="utf-8")
+    def test_adapter_surfaces_async_nets_and_bus_writes_for_dump(self):
         tb_top = (SCRIPT_DIR.parent / "tb" /
                   "core_eh2_tb_top.sv").read_text(encoding="utf-8")
-        spike_rvvi = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                      "spike_rvvi.cc").read_text(encoding="utf-8")
-
-        self.assertIn("rvviRefNetIndexGet(\"MIP\")", scoreboard)
-        self.assertIn("rvviRefNetSet(mip_net_idx", scoreboard)
-        self.assertIn("rvviDutBusWrite(h, longint'(lsu_bus_addr)",
-                      scoreboard)
-        self.assertNotIn("rvviDutBusWrite(0", scoreboard)
-        self.assertRegex(tb_top,
-                         r"\.mip\s*\(\s*dut_probe_intf\.mip\s*\)")
-        self.assertRegex(tb_top,
-                         r"\.nmi\s*\(\s*dut_probe_intf\.nmi\s*\)")
-        self.assertRegex(tb_top,
-                         r"\.debug_req\s*\(\s*dut_probe_intf\.debug_req\s*\)")
-        self.assertRegex(tb_top,
-                         r"\.lsu_bus_write\s*\(\s*lsu_bus_write\s*\)")
-        self.assertIn("write_mem(address + byte", spike_rvvi)
-
-    def test_rvvi_async_interrupt_only_events_are_not_skipped(self):
-        scoreboard = (
-            SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-            "eh2_rvvi_scoreboard.sv").read_text(encoding="utf-8")
-        spike_rvvi = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                      "spike_rvvi.cc").read_text(encoding="utf-8")
+        adapter = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
+                   "eh2_rvvi_adapter.sv").read_text(encoding="utf-8")
         spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
                        "spike_cosim.cc").read_text(encoding="utf-8")
 
-        self.assertIn("task automatic process_async_interrupt", scoreboard)
-        self.assertIn("process_async_interrupt(retire_evt)", scoreboard)
-        self.assertNotIn("async interrupt injection ordering is handled in MR3b hardening",
-                         scoreboard)
-        self.assertIn("ref_async_event_pending(hartId)", spike_rvvi)
+        self.assertRegex(tb_top,
+                         r"\.lsu_bus_write\s*\(\s*lsu_bus_write\s*\)")
+        self.assertIn("lsu_bus_write", adapter)
+        self.assertIn('$fwrite(dump_fd, "M|%0d|', adapter)
+        self.assertIn("record_ref_mem_write_if_changed", spike_cosim)
+
+    def test_spike_cosim_keeps_async_interrupt_ref_state(self):
+        spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                       "spike_cosim.cc").read_text(encoding="utf-8")
+
         self.assertIn("ref_async_event_pending", spike_cosim)
+        self.assertIn("ref_clear_async_event", spike_cosim)
 
     def test_testlist_marks_known_non_cosim_tests_disabled(self):
         testlist_path = SCRIPT_DIR.parent / "riscv_dv_extension" / "testlist.yaml"
@@ -989,29 +964,23 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn(".pmp_cfg_lock   ('0)", tb_top)
         self.assertIn(".pmp_addr       ('0)", tb_top)
 
-    def test_rvvi_scoreboard_fails_if_enabled_but_no_steps_execute(self):
-        scoreboard = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-                      "eh2_rvvi_scoreboard.sv").read_text(encoding="utf-8")
+    def test_no_online_scoreboard_artifacts_remain_in_active_sources(self):
+        root = SCRIPT_DIR.parents[3]
+        active_paths = [
+            root / "Makefile",
+            SCRIPT_DIR.parent / "eh2_tb.f",
+            SCRIPT_DIR.parent / "tb" / "core_eh2_tb_top.sv",
+            Path(run_regress.__file__),
+            Path(run_rtl.__file__),
+            Path(check_logs.__file__),
+        ]
+        haystack = "\n".join(
+            path.read_text(encoding="utf-8") for path in active_paths)
 
-        self.assertIn("test_done", scoreboard)
-        self.assertIn("saw_error", scoreboard)
-        self.assertIn("retire count mismatch", scoreboard)
-        self.assertIn("RVVI_METRIC_MISMATCHES", scoreboard)
-        self.assertIn("RVVI_METRIC_ERRORS", scoreboard)
-        self.assertIn('$fatal(1, "RVVI_SCOREBOARD: online lockstep failed")',
-                      scoreboard)
-
-    def test_rvvi_scoreboard_async_sources_prevent_cross_source_matches(self):
-        scoreboard = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-                      "eh2_rvvi_scoreboard.sv").read_text(encoding="utf-8")
-
-        self.assertIn("WB_SRC_DIV", scoreboard)
-        self.assertIn("WB_SRC_NB_LOAD", scoreboard)
-        self.assertIn("async_source_for", scoreboard)
-        self.assertIn("async_wb_q[retire_evt.hart][i].source != need_source",
-                      scoreboard)
-        self.assertIn("pending_retire_q", scoreboard)
-        self.assertNotIn("wb_source_matches", scoreboard)
+        self.assertNotIn("eh2_rvvi_" + "scoreboard", haystack)
+        self.assertNotIn("RVVI_" + "SCOREBOARD", haystack)
+        self.assertNotIn("use_rvvi_" + "cosim", haystack)
+        self.assertNotIn("tracecmp_" + "only", haystack)
 
     def test_spike_cosim_allows_suppressed_div_writebacks(self):
         spike_cc = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
@@ -1072,28 +1041,26 @@ class RegressionFrameworkTest(unittest.TestCase):
                       makefile)
         self.assertIn("+define+RVVI_NHART=$(RVVI_NHART)", makefile)
 
-    def test_rvvi_ref_hart_count_is_runtime_configurable(self):
+    def test_ref_trace_hart_count_is_runtime_configurable(self):
         root = SCRIPT_DIR.parents[3]
-        spike_rvvi = (root / "dv" / "cosim" /
-                      "spike_rvvi.cc").read_text(encoding="utf-8")
-        scoreboard = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-                      "eh2_rvvi_scoreboard.sv").read_text(encoding="utf-8")
+        rvviref = (root / "dv" / "cosim" /
+                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
+        makefile = (root / "Makefile").read_text(encoding="utf-8")
 
-        self.assertIn("kRvviConfigNumHarts", spike_rvvi)
-        self.assertIn("g_config_num_harts", spike_rvvi)
-        self.assertIn("std::make_unique<SpikeCosim>", spike_rvvi)
-        self.assertIn("g_config_num_harts)", spike_rvvi)
-        self.assertNotIn("constexpr int kDefaultNumHarts = 1", spike_rvvi)
-        self.assertIn("rvviRefConfigSetInt(kRvviConfigNumHarts, NHART)",
-                      scoreboard)
-        self.assertRegex(scoreboard,
-                         r'\$value\$plusargs\("rvvi_nhart=%d",\s*\w+\)')
+        self.assertIn("uint32_t nhart", rvviref)
+        self.assertIn("if (nhart == 0) nhart = 1", rvviref)
+        self.assertIn("std::make_unique<SpikeCosim>", rvviref)
+        self.assertIn("nhart)", rvviref)
+        self.assertIn("[steps] [nhart] [hart_schedule]", rvviref)
+        self.assertIn("hart >= nhart", rvviref)
+        self.assertIn("RVVI_NHART := $(if $(IS_DUAL_THREAD_CONFIG),2,1)",
+                      makefile)
 
-    def test_rvvi_scoreboard_and_top_route_per_hart_sidebands(self):
-        scoreboard = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-                      "eh2_rvvi_scoreboard.sv").read_text(encoding="utf-8")
+    def test_adapter_and_top_route_per_hart_sidebands(self):
         tb_top = (SCRIPT_DIR.parent / "tb" /
                   "core_eh2_tb_top.sv").read_text(encoding="utf-8")
+        adapter = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
+                   "eh2_rvvi_adapter.sv").read_text(encoding="utf-8")
         dut_probe = (SCRIPT_DIR.parent / "env" /
                      "eh2_dut_probe_if.sv").read_text(encoding="utf-8")
 
@@ -1102,11 +1069,10 @@ class RegressionFrameworkTest(unittest.TestCase):
                          r"logic\s+\[NUM_THREADS-1:0\]\s+nb_load_wen")
         self.assertRegex(dut_probe,
                          r"logic\s+\[NUM_THREADS-1:0\]\[31:0\]\s+mip")
-        self.assertIn("async_wb_q[h].push_back(hint)", scoreboard)
-        self.assertNotIn("async_wb_q[0].push_back(hint)", scoreboard)
-        self.assertIn("rvviDutBusWrite(h", scoreboard)
-        self.assertNotIn("rvviDutBusWrite(0", scoreboard)
-        self.assertIn("for (int h = 0; h < NHART; h++) begin", scoreboard)
+        self.assertIn("for (int h = 0; h < NHART; h++) begin", adapter)
+        self.assertIn("rvvi.valid[gh][gr]", adapter)
+        self.assertIn("rvvi.pc_rdata[gh][gr]", adapter)
+        self.assertIn("rvvi.insn[gh][gr]", adapter)
         self.assertIn("eh2_dut_probe_if #(.NUM_THREADS(`RV_NUM_THREADS))",
                       tb_top)
         self.assertIn("dut_probe_intf.mip[ph]", tb_top)
@@ -1314,7 +1280,8 @@ class RegressionFrameworkTest(unittest.TestCase):
             self.assertTrue(result.passed)
             rtl_cmd = [cmd for cmd in seen_cmds if cmd[1].endswith("run_rtl.py")][0]
             sim_opts = rtl_cmd[rtl_cmd.index("--sim-opts") + 1]
-            self.assertIn("+tracecmp_only", sim_opts)
+            self.assertNotIn("+tracecmp_" + "only", sim_opts)
+            self.assertIn("+rvvi_trace_dump", sim_opts)
 
     def test_run_single_test_passes_sized_process_timeout_to_run_rtl(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1447,7 +1414,7 @@ class RegressionFrameworkTest(unittest.TestCase):
             cmp_mock.assert_not_called()
             rtl_cmd = [cmd for cmd in seen_cmds if cmd[1].endswith("run_rtl.py")][0]
             sim_opts = rtl_cmd[rtl_cmd.index("--sim-opts") + 1]
-            self.assertIn("+tracecmp_only", sim_opts)
+            self.assertNotIn("+tracecmp_" + "only", sim_opts)
             self.assertNotIn("+rvvi_trace_dump", sim_opts)
 
     def test_run_rtl_direct_mode_does_not_add_rvvi_dump_without_rvvi_elf(self):
@@ -1790,12 +1757,10 @@ class RegressionFrameworkTest(unittest.TestCase):
             log = Path(td) / "sim.log"
             log.write_text(
                 "TEST PASSED (signature)\n"
-                "Error: \"dv/uvm/core_eh2/common/rvvi_agent/"
-                "eh2_rvvi_scoreboard.sv\", 150: core_eh2_tb_top."
-                "u_rvvi_scoreboard: at time 1000 ps\n"
-                "RVVI_SCOREBOARD: online lockstep failed\n"
-                "$finish called from file \"dv/uvm/core_eh2/common/"
-                "rvvi_agent/eh2_rvvi_scoreboard.sv\", line 150.\n",
+                "Error: \"dv/uvm/core_eh2/tb/core_eh2_tb_top.sv\", "
+                "150: core_eh2_tb_top.u_check: at time 1000 ps\n"
+                "$fatal called from file \"dv/uvm/core_eh2/tb/"
+                "core_eh2_tb_top.sv\", line 150.\n",
                 encoding="utf-8")
 
             result = check_logs.check_sim_log(str(log))
@@ -3017,27 +2982,24 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertNotIn("@(posedge vif.clk iff (vif.bvalid && vif.bready))",
                          monitor)
 
-    def test_rvvi_scoreboard_queues_retire_until_async_writeback_arrives(self):
-        scoreboard = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-                      "eh2_rvvi_scoreboard.sv").read_text(encoding="utf-8")
+    def test_adapter_preserves_async_writeback_tags_for_trace_dump(self):
+        adapter = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
+                   "eh2_rvvi_adapter.sv").read_text(encoding="utf-8")
 
-        self.assertIn("pending_retire_q[h].push_back(retire_evt)", scoreboard)
-        self.assertIn("task automatic process_pending(input int h)", scoreboard)
-        self.assertIn("if (needs_async_wb(retire_evt)) begin", scoreboard)
-        self.assertIn("if (!try_consume_async_wb(retire_evt, async_hint)) begin",
-                      scoreboard)
-        self.assertIn("break;", scoreboard)
-        self.assertIn("process_retire(retire_evt, has_async, async_hint)",
-                      scoreboard)
+        self.assertIn("nb_load_wen", adapter)
+        self.assertIn("div_wren", adapter)
+        self.assertIn("x_wdata_w", adapter)
+        self.assertIn("x_wb_w", adapter)
 
-    def test_rvvi_scoreboard_stages_lsu_bus_writes_through_rvvi_api(self):
-        scoreboard = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-                      "eh2_rvvi_scoreboard.sv").read_text(encoding="utf-8")
+    def test_ref_trace_records_lsu_memory_writes_from_spike_cosim(self):
+        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
+        cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                 "spike_cosim.cc").read_text(encoding="utf-8")
 
-        self.assertIn("task automatic stage_bus_writes", scoreboard)
-        self.assertIn("lsu_bus_write && lsu_bus_wmask != 4'b0", scoreboard)
-        self.assertIn("rvviDutBusWrite", scoreboard)
-        self.assertIn("stage_bus_writes();", scoreboard)
+        self.assertIn("ref_mem_writes", rvviref)
+        self.assertIn(";mem=%08x:%08x:%x", rvviref)
+        self.assertIn("record_ref_mem_write_if_changed", cosim)
 
     def test_cosim_sources_have_no_tmp_debug_file_side_effects(self):
         cosim_dir = SCRIPT_DIR.parents[3] / "dv" / "cosim"
@@ -3112,21 +3074,24 @@ class RegressionFrameworkTest(unittest.TestCase):
                    "spike_rvvi_main.cc").read_text(encoding="utf-8")
 
         self.assertIn("pc,instr,gpr,csr,binary,mode,instr_str,operand,pad", rvviref)
-        self.assertIn("rvviRefGprsWrittenGet", rvviref)
-        self.assertIn("rvviRefGprGet", rvviref)
-        self.assertIn("rvviRefConfigSetInt", rvviref)
+        self.assertIn("std::make_unique<SpikeCosim>", rvviref)
+        self.assertIn("ref_event_step", rvviref)
+        self.assertIn("ref_gpr_written_mask", rvviref)
+        self.assertIn("ref_gpr", rvviref)
+        self.assertIn("ref_csr_writes", rvviref)
+        self.assertIn("ref_mem_writes", rvviref)
         self.assertIn("hart_schedule", rvviref)
         self.assertIn("for (uint32_t hart = 0", rvviref)
         self.assertIn('"hart=%u"', rvviref)
-        self.assertNotIn("rvviRefEventStep(0)", rvviref)
+        self.assertNotIn("rvvi" + "Ref", rvviref)
 
     def test_rvvi_ref_model_maps_eh2_dccm_for_data_accesses(self):
-        rvvi = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                "spike_rvvi.cc").read_text(encoding="utf-8")
+        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
 
-        self.assertIn("kDefaultDccmBase", rvvi)
-        self.assertIn("0xf0040000u", rvvi)
-        self.assertIn("g_ref->add_memory(kDefaultDccmBase", rvvi)
+        self.assertIn("kDefaultDccmBase", rvviref)
+        self.assertIn("0xf0040000u", rvviref)
+        self.assertIn("ref->add_memory(kDefaultDccmBase", rvviref)
 
     def test_spike_cosim_records_implicit_trap_csr_writes_for_ref_trace(self):
         cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
@@ -3147,13 +3112,13 @@ class RegressionFrameworkTest(unittest.TestCase):
 
     def test_rvvi_ref_model_maps_eh2_low_zero_page_for_illegal_fetches(self):
         """EH2 external IFU returns zero data for low blank addresses."""
-        rvvi = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                "spike_rvvi.cc").read_text(encoding="utf-8")
+        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
+                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
 
-        self.assertIn("kDefaultLowZeroBase", rvvi)
-        self.assertIn("0x00000000u", rvvi)
-        self.assertIn("kDefaultLowZeroSize", rvvi)
-        self.assertIn("g_ref->add_memory(kDefaultLowZeroBase", rvvi)
+        self.assertIn("kDefaultLowZeroBase", rvviref)
+        self.assertIn("0x00000000u", rvviref)
+        self.assertIn("kDefaultLowZeroSize", rvviref)
+        self.assertIn("ref->add_memory(kDefaultLowZeroBase", rvviref)
 
     def test_spike_cosim_records_host_backed_atomic_memory_writes(self):
         cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
@@ -3170,15 +3135,20 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("proc->put_csr(CSR_MSTATUS", cosim)
         self.assertIn("MSTATUS_MPP", cosim)
 
-    def test_root_readme_documents_rvvi_cosim_platform(self):
+    def test_root_readme_documents_tracecmp_platform_scope(self):
         readme = SCRIPT_DIR.parents[3] / "README.md"
 
         self.assertTrue(readme.exists())
         text = readme.read_text(encoding="utf-8")
         self.assertIn("cosim-only", text)
-        self.assertIn("标准 RVVI-API", text)
+        self.assertIn("RVVI-TRACE", text)
+        self.assertIn("离线 tracecmp", text)
+        self.assertIn("功能仿真", text)
+        self.assertIn("不在本平台范围", text)
+        self.assertIn("23/57", text)
+        self.assertIn("riscv_csr_test", text)
         self.assertIn("rvvi_adapter.sv", text)
-        self.assertIn("spike_rvvi.cc", text)
+        self.assertIn("spike_cosim.cc", text)
         self.assertIn("NHART=2", text)
 
     def test_signoff_is_cosim_only(self):
@@ -3191,7 +3161,7 @@ class RegressionFrameworkTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             signoff.parse_stage_result_args(["for" + "mal=/tmp/" + "for" + "mal"])
 
-    def test_signoff_cosim_profile_uses_rvvi_lockstep(self):
+    def test_signoff_cosim_profile_uses_offline_tracecmp(self):
         class Args:
             simulator = "vcs"
             seed = 1
@@ -3346,6 +3316,73 @@ class RegressionFrameworkTest(unittest.TestCase):
 
             self.assertEqual(result["status"], "SKIP")
             self.assertEqual(result["metrics"], {})
+
+    def test_signoff_report_labels_coverage_gates_explicitly(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "signoff_report.md"
+            status = {
+                "status": "PASS",
+                "timestamp": "2026-06-17T00:00:00",
+                "profile": "full",
+                "simulator": "vcs",
+                "output_dir": str(Path(td)),
+                "stages": [],
+                "coverage": {
+                    "status": "PASS",
+                    "metrics": {
+                        "assert": 33.0,
+                        "fsm": 54.0,
+                        "line": 91.0,
+                        "toggle": 53.0,
+                        "functional": 69.0,
+                        "overall": 64.0,
+                    },
+                    "thresholds": {
+                        "overall": 0.0,
+                        "line": 55.0,
+                        "fsm": 0.0,
+                        "toggle": 0.0,
+                        "functional": 40.0,
+                    },
+                    "files": [],
+                    "blockers": [],
+                },
+                "precheck": {"checks": []},
+                "blockers": [],
+            }
+
+            signoff.write_markdown_report(status, out)
+            text = out.read_text(encoding="utf-8")
+
+            self.assertIn("| Metric | Value | Gate | Threshold |", text)
+            self.assertIn("| line | 91.00% | gated | 55.00% |", text)
+            self.assertIn("| functional | 69.00% | gated | 40.00% |", text)
+            self.assertIn("| assert | 33.00% | collected but ungated | - |", text)
+            self.assertIn("| fsm | 54.00% | collected but ungated | - |", text)
+            self.assertIn("| toggle | 53.00% | collected but ungated | - |", text)
+
+    def test_docs_describe_honest_scope_and_generic_onboarding(self):
+        root = SCRIPT_DIR.parents[3]
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        index = (root / "docs" / "index.html").read_text(encoding="utf-8")
+        onboarding_path = root / "docs" / "onboarding.md"
+
+        self.assertTrue(onboarding_path.exists())
+        onboarding = onboarding_path.read_text(encoding="utf-8")
+        combined = "\n".join([readme, index, onboarding])
+
+        self.assertIn("功能仿真", combined)
+        self.assertIn("不在本平台范围", combined)
+        self.assertIn("23/57", combined)
+        self.assertIn("tracecmp: disabled", combined)
+        self.assertIn("riscv_csr_test", combined)
+        self.assertIn("riscv_csr_hazard_test", combined)
+        self.assertIn("RVVI 适配器", onboarding)
+        self.assertIn("参考模型", onboarding)
+        self.assertIn("核配置", onboarding)
+        self.assertIn("核无关", onboarding)
+        self.assertNotRegex(readme + index,
+                            r"online.*lockstep|逐指令.*lockstep|在线.*RVVI.*比对")
 
     def test_signoff_gate_fails_existing_failed_stage_result(self):
         with tempfile.TemporaryDirectory() as td:

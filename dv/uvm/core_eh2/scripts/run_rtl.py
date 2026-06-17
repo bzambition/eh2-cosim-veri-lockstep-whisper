@@ -261,8 +261,7 @@ def add_rvvi_trace_dump_sim_opts(sim_opts: str, trace_path: Path) -> str:
 
 def needs_rvvi_trace_defaults(sim_opts: str) -> bool:
     return any(token in (sim_opts or "")
-               for token in ("+rvvi_elf=", "+rvvi_trace_dump",
-                             "+tracecmp_only"))
+               for token in ("+rvvi_elf=", "+rvvi_trace_dump"))
 
 
 def _directed_test_entry(md: RegressionMetadata, test_name: str) -> dict:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Convert EH2 RVVI retire dump to riscv-dv trace CSV.
+"""Convert an RVVI retire dump to riscv-dv trace CSV.
 
 Input records are pipe-delimited and intentionally simple so the SystemVerilog
 collector remains a dumb trace source:
@@ -25,9 +25,9 @@ import sys
 from collections import defaultdict, deque
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-EH2_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(SCRIPT_DIR))))
-RISCV_DV_SCRIPTS = os.path.join(EH2_ROOT, "vendor", "google_riscv-dv",
+RISCV_DV_SCRIPTS = os.path.join(REPO_ROOT, "vendor", "google_riscv-dv",
                                 "scripts")
 ASYNC_LOOKAHEAD_RETIRES = 256
 LOAD_WRITEBACK_RETIRES = 256
