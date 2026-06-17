@@ -1,6 +1,7 @@
 # 新核接入指南
 
 本文说明如何把这个功能仿真框架接到一个新 RISC-V 核。EH2 是当前已接入的第一个对象。
+权威平台说明见 `docs/index.html`；本文与其中的「新核接入」章节保持同一边界。
 
 ## 边界原则
 
@@ -31,6 +32,17 @@
 8. 接 compliance signature。
 9. 跑 full signoff，并在文档中记录 tracecmp/agent split、覆盖率 gate、已知 skip 项和参考模型信任假设。
 
+## signoff 口径
+
+新核接入后，文档必须把三类结论分开写：
+
+- 已验证：stage 数字、coverage 数字、pytest 或脚本单测数字，以及证据目录。
+- 未验证：`tracecmp: disabled` 的测试数量、替代 checker、`skip_in_signoff` 项和低覆盖项。
+- 范围之外：formal、LEC、综合、STA、power、physical、gate-level sim、CDC/RDC、security/side-channel、PPA 和性能。
+
+`riscvdv` stage 绿不自动等于所有 riscv-dv 测试都做了逐 retire tracecmp。若有 async/debug/interrupt 测试关闭 tracecmp，
+必须在 testlist 和文档中写清替代 checker，例如 UVM agent 或 signature handshake。
+
 ## EH2 已填范例
 
 | 层 | EH2 实现 | 说明 |
@@ -39,6 +51,14 @@
 | 参考模型 | `dv/cosim/spike_cosim.cc` / `.h` | 建模 EH2 自定义 CSR、PMP/ePMP、trap、DCCM、mailbox、低地址取指空洞、原子和异步写回行为。 |
 | standalone ref | `dv/cosim/spike_rvvi_main.cc` | 直接调用 `SpikeCosim` ref-only helper，生成 riscv-dv 风格 CSV。 |
 | 核配置 | `dv/uvm/core_eh2/riscv_dv_extension/riscv_core_setting.sv`、`testlist.yaml`、Makefile `CONFIG` | 配置 RV32、EH2 memory map、single/dual thread 和 signoff stage。 |
+
+EH2 当前 full profile 的真实口径：
+
+- `make signoff PROFILE=full`：PASS。
+- `riscvdv`：395/395 PASS。
+- 23/57 个 riscv-dv 测试是 `tracecmp: disabled`，由 UVM agent 或 signature handshake 验证。
+- `riscv_csr_test` 和 `riscv_csr_hazard_test` 是 `skip_in_signoff` tracked-broken，未解决且未计入 signoff。
+- coverage 只 gate line 和 functional；assert、branch、fsm、toggle、overall 当前是 collected but ungated。
 
 ## 接入检查清单
 

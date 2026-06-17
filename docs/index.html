@@ -1,290 +1,699 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>eh2-cosim-veri 文档</title>
+  <title>eh2-cosim-veri 平台最终文档</title>
   <style>
     :root {
-      --bg: #f7f8fa;
-      --panel: #ffffff;
-      --ink: #1f2933;
-      --muted: #5f6b7a;
-      --line: #d8dee7;
-      --accent: #1464a5;
-      --code-bg: #111827;
-      --code-ink: #e5e7eb;
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --ink: #172033;
+      --muted: #5b6475;
+      --line: #d8dee9;
+      --strong: #0b5cad;
+      --accent: #0f7a5f;
+      --warn: #9a5b00;
+      --danger: #a63636;
+      --soft-blue: #e8f1ff;
+      --soft-green: #e6f5ef;
+      --soft-warn: #fff4dc;
+      --soft-red: #fdecec;
+      --code: #20293a;
+      --code-bg: #eef2f7;
+      --shadow: 0 10px 28px rgba(19, 32, 56, 0.08);
     }
+
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       color: var(--ink);
       background: var(--bg);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC",
-        "Microsoft YaHei", Arial, sans-serif;
-      line-height: 1.72;
+      font: 15px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
     }
+
+    a { color: var(--strong); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
     .layout {
       display: grid;
-      grid-template-columns: 260px minmax(0, 1fr);
+      grid-template-columns: 288px minmax(0, 1fr);
       min-height: 100vh;
     }
-    nav {
+
+    .sidebar {
       position: sticky;
       top: 0;
       height: 100vh;
-      padding: 28px 22px;
-      overflow-y: auto;
-      background: #17212f;
-      color: #dbe5f0;
+      overflow: auto;
+      border-right: 1px solid var(--line);
+      background: #101827;
+      color: #e8eef8;
+      padding: 24px 18px;
     }
-    nav h1 { margin: 0 0 4px; font-size: 20px; letter-spacing: 0; }
-    nav p { margin: 0 0 18px; color: #aebccc; font-size: 13px; }
-    nav a {
+
+    .brand {
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .brand h1 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      line-height: 1.25;
+    }
+
+    .brand p {
+      margin: 0;
+      color: #aeb9cc;
+      font-size: 13px;
+    }
+
+    .nav a {
       display: block;
-      padding: 7px 9px;
-      color: #dbe5f0;
-      text-decoration: none;
+      padding: 7px 10px;
       border-radius: 6px;
+      color: #dce5f2;
       font-size: 14px;
     }
-    nav a:hover { background: #243247; color: #fff; }
-    main {
-      max-width: 1120px;
-      width: 100%;
-      padding: 42px 48px 80px;
+
+    .nav a:hover {
+      background: rgba(255, 255, 255, 0.08);
+      text-decoration: none;
     }
-    section {
-      margin: 0 0 28px;
-      padding: 28px 30px;
-      background: var(--panel);
+
+    .main {
+      max-width: 1160px;
+      width: 100%;
+      padding: 36px 34px 80px;
+    }
+
+    .hero {
+      background: var(--surface);
       border: 1px solid var(--line);
       border-radius: 8px;
+      padding: 28px;
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
     }
-    h2, h3 { line-height: 1.35; letter-spacing: 0; }
-    h2 { margin: 0 0 18px; font-size: 28px; }
-    h3 { margin: 24px 0 10px; font-size: 20px; }
-    p { margin: 10px 0; }
-    a { color: var(--accent); }
-    code {
-      padding: 2px 5px;
-      border-radius: 4px;
-      background: #edf2f7;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 0.92em;
+
+    .hero h2 {
+      margin: 0 0 12px;
+      font-size: 30px;
+      line-height: 1.25;
     }
-    pre {
-      margin: 14px 0;
-      padding: 16px;
-      overflow-x: auto;
+
+    .hero p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      max-width: 980px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 3px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f9fbfe;
+      color: #314057;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    section {
+      background: var(--surface);
+      border: 1px solid var(--line);
       border-radius: 8px;
-      background: var(--code-bg);
-      color: var(--code-ink);
+      padding: 24px 26px;
+      margin: 18px 0;
+      box-shadow: 0 4px 16px rgba(19, 32, 56, 0.04);
     }
-    pre code { padding: 0; background: transparent; color: inherit; }
+
+    h2 {
+      margin: 0 0 16px;
+      font-size: 24px;
+      line-height: 1.3;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+      line-height: 1.35;
+    }
+
+    p { margin: 10px 0; }
+    ul, ol { padding-left: 22px; margin: 10px 0; }
+    li { margin: 5px 0; }
+
+    .callout {
+      border: 1px solid var(--line);
+      border-left-width: 5px;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin: 16px 0;
+      background: #fbfcff;
+    }
+
+    .callout.good { border-left-color: var(--accent); background: var(--soft-green); }
+    .callout.info { border-left-color: var(--strong); background: var(--soft-blue); }
+    .callout.warn { border-left-color: var(--warn); background: var(--soft-warn); }
+    .callout.danger { border-left-color: var(--danger); background: var(--soft-red); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin: 14px 0;
+    }
+
+    .mini {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fbfcff;
+    }
+
+    .mini h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+
     table {
       width: 100%;
-      margin: 14px 0;
       border-collapse: collapse;
+      margin: 14px 0 20px;
       font-size: 14px;
     }
+
     th, td {
-      padding: 9px 10px;
       border: 1px solid var(--line);
+      padding: 8px 10px;
       vertical-align: top;
       text-align: left;
     }
-    th { background: #eef3f8; }
-    .note {
-      margin: 14px 0;
-      padding: 12px 14px;
-      border-left: 4px solid var(--accent);
-      background: #eef6fc;
-      color: #24445f;
+
+    th {
+      background: #eef3fa;
+      font-weight: 650;
     }
-    @media (max-width: 860px) {
+
+    tr:nth-child(even) td { background: #fbfcfe; }
+
+    code {
+      padding: 1px 5px;
+      border-radius: 4px;
+      color: var(--code);
+      background: var(--code-bg);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    pre {
+      overflow: auto;
+      padding: 14px 16px;
+      border-radius: 8px;
+      background: #111827;
+      color: #e6edf7;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    pre code {
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      font-size: inherit;
+    }
+
+    .status-pass { color: var(--accent); font-weight: 700; }
+    .status-warn { color: var(--warn); font-weight: 700; }
+    .status-danger { color: var(--danger); font-weight: 700; }
+    .small { color: var(--muted); font-size: 13px; }
+
+    @media (max-width: 920px) {
       .layout { display: block; }
-      nav { position: static; height: auto; }
-      main { padding: 24px 18px 48px; }
+      .sidebar {
+        position: static;
+        height: auto;
+        border-right: 0;
+      }
+      .main { padding: 22px 14px 48px; }
+      .grid { grid-template-columns: 1fr; }
+      section, .hero { padding: 20px 16px; }
     }
   </style>
 </head>
 <body>
   <div class="layout">
-    <nav>
-      <h1>eh2-cosim-veri</h1>
-      <p>设计与使用文档</p>
-      <a href="#position">平台定位</a>
-      <a href="#architecture">检查链路</a>
-      <a href="#split">riscv-dv 分流</a>
-      <a href="#scope">范围边界</a>
-      <a href="#coverage">覆盖率</a>
-      <a href="#components">关键组件</a>
-      <a href="#usage">常用命令</a>
-      <a href="#signoff">signoff 含义</a>
-      <a href="#onboarding">新核接入</a>
-    </nav>
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>eh2-cosim-veri</h1>
+        <p>功能仿真 co-sim 平台最终文档</p>
+      </div>
+      <nav class="nav" aria-label="章节导航">
+        <a href="#overview">1. 概述与定位</a>
+        <a href="#can-do">2. 能力清单</a>
+        <a href="#verified">3. 验证现状</a>
+        <a href="#not-done">4. 没做与范围之外</a>
+        <a href="#architecture">5. 架构与原理</a>
+        <a href="#modeling">6. 自定义建模</a>
+        <a href="#usage">7. 使用指南</a>
+        <a href="#onboarding">8. 新核接入</a>
+        <a href="#tests">9. 测试体系清单</a>
+        <a href="#known">10. 已知问题与后续</a>
+        <a href="#evidence">证据与来源</a>
+      </nav>
+    </aside>
 
-    <main>
-      <section id="position">
-        <h2>平台定位</h2>
+    <main class="main">
+      <div class="hero">
+        <h2>eh2-cosim-veri 平台最终文档</h2>
         <p>
-          <strong>eh2-cosim-veri</strong> 是面向 EH2 的 cosim-only 功能仿真验证平台。
-          它保留 RTL 仿真、UVM 激励、riscv-dv、riscv compliance、覆盖率收集和 signoff
-          所需内容，目标是验证已运行测试上的架构态行为。
+          本文是仓库内的权威说明，描述 VeeR-EH2 功能（架构正确性）离线 co-sim 验证平台的当前状态。
+          它讲清楚平台能做什么、已经验证了什么、没有覆盖什么，以及如何把同一框架接到一个新 RISC-V 核。
+        </p>
+        <div class="meta">
+          <span class="pill">权威 commit：e31ec5d</span>
+          <span class="pill">日期：2026-06-17</span>
+          <span class="pill">full signoff：PASS</span>
+          <span class="pill">riscvdv：395/395 PASS</span>
+          <span class="pill">方法：RVVI-TRACE → 离线 tracecmp</span>
+        </div>
+      </div>
+
+      <section id="overview">
+        <h2>1. 概述与定位</h2>
+        <p>
+          <strong>eh2-cosim-veri</strong> 是面向 VeeR-EH2 的 cosim-only 验证平台。它覆盖处理器签核中的一个 lane：
+          动态功能仿真（dynamic-functional simulation）。平台目标是确认在已运行的测试、seed 和配置上，
+          DUT 退休后的架构态与 EH2-Spike 参考模型一致。
         </p>
         <p>
-          平台当前方法学是：DUT 经 RVVI-TRACE 采集，离线 tracecmp 对比 EH2-Spike；
-          异步 interrupt/debug/reset/single-step 类测试走 UVM agent 与 signature handshake；
-          compliance 走官方 signature。
+          当前方法学是：DUT 通过标准 RVVI-TRACE 采集退休信息，生成离线 trace；转换器把 RVVI dump 变成通用 CSV；
+          <code>trace_compare_full.py</code> 将 DUT CSV 与 standalone EH2-Spike CSV 逐 retire 比对。比较范围包括
+          PC、GPR、CSR（含 EH2 自定义 CSR）和内存事件。中断、debug、reset 等异步路径不强行纳入逐 retire tracecmp，
+          而是使用 UVM agent 与 signature handshake 验证。compliance 阶段使用官方 signature 逐字节检查。
         </p>
+        <div class="callout danger">
+          <strong>这不是 tape-out 完整签核。</strong>
+          full profile PASS 不表示 formal property、LEC 等价、综合、STA、power、physical、gate-level sim、
+          CDC/RDC、security/side-channel、PPA 或性能验证已经完成。这些属于其他验证 lane。
+        </div>
+        <table>
+          <tr><th>问题</th><th>准确回答</th></tr>
+          <tr><td>这是一个什么平台？</td><td>EH2 动态功能仿真 co-sim 平台，核心 checker 是离线 tracecmp。</td></tr>
+          <tr><td>它验证什么？</td><td>在已运行测试上，退休架构态与 EH2-Spike 参考模型一致；异步组由 UVM/signature 验证；compliance signature 合规。</td></tr>
+          <tr><td>它不验证什么？</td><td>微架构时序、formal/timing/physical/security/PPA 等非动态功能仿真问题。</td></tr>
+          <tr><td>旧的在线比较路径还在吗？</td><td>不在。P5 已删除在线 RVVI 参考侧和 scoreboard 活路径，只保留 RVVI-TRACE 采集和离线 tracecmp。</td></tr>
+        </table>
+      </section>
+
+      <section id="can-do">
+        <h2>2. 能力清单（Can do）</h2>
+        <div class="grid">
+          <div class="mini">
+            <h3>离线 tracecmp</h3>
+            <p>逐 retire 比 PC、instruction、GPR 写集合、CSR 写集合和内存 byte-enable 写集合。比较器保持 core-agnostic，不读取 EH2 层级信号。</p>
+          </div>
+          <div class="mini">
+            <h3>标准 RVVI-TRACE 采集</h3>
+            <p><code>eh2_rvvi_adapter.sv</code> 把 EH2 retire、异步写回、CSR、trap、store 和 hart/order 信息映射到标准 RVVI trace。</p>
+          </div>
+          <div class="mini">
+            <h3>standalone EH2-Spike</h3>
+            <p><code>spike_cosim.cc</code> 建模 EH2 自定义 CSR、PMP/ePMP、trap、memory map、DCCM、mailbox 和 ELF-VMA 装载。</p>
+          </div>
+          <div class="mini">
+            <h3>随机与定向回归</h3>
+            <p>支持 smoke、directed、cosim directed、riscv-dv 多 iteration、compliance signature 和 NHART=2 双 hart SMT cosim。</p>
+          </div>
+          <div class="mini">
+            <h3>异步路径验证</h3>
+            <p>interrupt、debug、reset、single-step、dret 等路径使用 irq/jtag/halt_run agent 与 signature handshake，不混入同步 tracecmp 假设。</p>
+          </div>
+          <div class="mini">
+            <h3>signoff 汇总</h3>
+            <p><code>signoff.py</code> 聚合五个 stage、coverage、precheck、waiver 和 blockers，报告明确标注覆盖率 gated / collected but ungated。</p>
+          </div>
+        </div>
+        <h3>make 目标总览</h3>
+        <table>
+          <tr><th>目标</th><th>作用</th><th>预期</th></tr>
+          <tr><td><code>make help</code></td><td>打印 Makefile 内置帮助。</td><td>显示常用变量和目标说明。</td></tr>
+          <tr><td><code>make asm</code></td><td>构建 <code>tests/asm/*.S</code>。</td><td>生成 ELF、HEX 和反汇编文件。</td></tr>
+          <tr><td><code>make spike</code></td><td>在 <code>vendor/spike</code> 内构建 Spike 并安装到库内路径。</td><td>生成 <code>vendor/spike/install</code>。</td></tr>
+          <tr><td><code>make cosim</code></td><td>构建 <code>build/libcosim.so</code>。</td><td>链接库内 Spike install。</td></tr>
+          <tr><td><code>make rvviref</code></td><td>运行 standalone ref CSV 生成器。</td><td>生成 <code>build/rvviref/rvvi_ref_trace.csv</code>。</td></tr>
+          <tr><td><code>make compile</code></td><td>按 <code>SIMULATOR=vcs|nc</code> 编译 RTL/UVM testbench。</td><td>生成 <code>simv</code> 或 NC elaboration 目录。</td></tr>
+          <tr><td><code>make smoke</code></td><td>运行最小汇编 smoke。</td><td>1/1 PASS。</td></tr>
+          <tr><td><code>make regress TESTLIST=cosim</code></td><td>运行 7 条 cosim directed。</td><td>7/7 PASS。</td></tr>
+          <tr><td><code>make regress TESTLIST=riscvdv</code></td><td>运行 riscv-dv testlist。</td><td>普通同步组走 tracecmp，异步组按 testlist 走 agent/signature。</td></tr>
+          <tr><td><code>make compliance</code></td><td>运行官方 compliance signature 流。</td><td>rv32ui/um/uc signature PASS。</td></tr>
+          <tr><td><code>make watch_wave TEST=&lt;name&gt;</code></td><td>运行指定汇编测试并打开波形；<code>MODE=live</code> 支持 NC 交互模式。</td><td>生成 FSDB 或 SHM 后启动查看器。</td></tr>
+          <tr><td><code>make signoff PROFILE=full</code></td><td>运行 full profile 五 stage 和覆盖率门控。</td><td>当前权威结果为 PASS。</td></tr>
+          <tr><td><code>make clean</code></td><td>按 <code>SCOPE</code>、<code>MODE</code>、<code>FORCE</code> 清理或归档构建产物。</td><td>默认保留签发证据和长耗时缓存。</td></tr>
+        </table>
+      </section>
+
+      <section id="verified">
+        <h2>3. 验证现状（Verified）</h2>
+        <div class="callout good">
+          权威证据来自 <code>build/signoff_vcs/signoff_status.json</code> 和 <code>build/signoff_vcs/signoff_report.md</code>。
+          本次记录时间戳为 <code>2026-06-17T12:47:24</code>，profile 为 <code>full</code>，status 为 <span class="status-pass">PASS</span>。
+        </div>
+        <table>
+          <tr><th>Stage</th><th>Status</th><th>Total</th><th>Passed</th><th>Failed</th><th>Pass rate</th><th>说明</th></tr>
+          <tr><td>smoke</td><td class="status-pass">PASS</td><td>1</td><td>1</td><td>0</td><td>100.00%</td><td>最小功能仿真路径。</td></tr>
+          <tr><td>directed</td><td class="status-pass">PASS</td><td>40</td><td>34</td><td>6</td><td>85.00%</td><td>fail rate 15% ≤ 25% threshold waiver。</td></tr>
+          <tr><td>cosim</td><td class="status-pass">PASS</td><td>7</td><td>7</td><td>0</td><td>100.00%</td><td>cosim directed 全通过。</td></tr>
+          <tr><td>riscvdv</td><td class="status-pass">PASS</td><td>395</td><td>395</td><td>0</td><td>100.00%</td><td>不含 2 个 <code>skip_in_signoff</code> tracked-broken CSR 项。</td></tr>
+          <tr><td>compliance</td><td class="status-pass">PASS</td><td>50</td><td>50</td><td>0</td><td>100.00%</td><td>rv32ui / rv32um / rv32uc signature。</td></tr>
+        </table>
+        <p>
+          实跑覆盖率池为 102/104（98.1%）。单元测试当前记录为
+          <code>python3 -m pytest dv/uvm/core_eh2/scripts/tests/ -q</code>：
+          216 passed / 1 skipped。
+        </p>
+        <h3>覆盖率：收集与门控分开说明</h3>
+        <table>
+          <tr><th>Metric</th><th>Value</th><th>Gate</th><th>Threshold</th><th>解释</th></tr>
+          <tr><td>functional</td><td>69.40%</td><td class="status-pass">gated</td><td>40.00%</td><td>进入 full profile 门控。</td></tr>
+          <tr><td>line</td><td>91.19%</td><td class="status-pass">gated</td><td>55.00%</td><td>进入 full profile 门控。</td></tr>
+          <tr><td>assert</td><td>33.33%</td><td class="status-warn">collected but ungated</td><td>-</td><td>收集但当前不作为 PASS/FAIL 条件。</td></tr>
+          <tr><td>branch</td><td>83.42%</td><td class="status-warn">collected but ungated</td><td>-</td><td>收集但当前不作为 PASS/FAIL 条件。</td></tr>
+          <tr><td>fsm</td><td>54.74%</td><td class="status-warn">collected but ungated</td><td>-</td><td>收集但当前不作为 PASS/FAIL 条件。</td></tr>
+          <tr><td>toggle</td><td>53.27%</td><td class="status-warn">collected but ungated</td><td>-</td><td>收集但当前不作为 PASS/FAIL 条件。</td></tr>
+          <tr><td>overall</td><td>64.23%</td><td class="status-warn">collected but ungated</td><td>-</td><td>汇总值，不作为当前 gate。</td></tr>
+        </table>
+        <h3>方法学有效性证据</h3>
+        <ul>
+          <li><code>trace_compare_full.py</code> 逐 retire 比 PC、instruction、GPR、CSR 和内存 byte map，不只看 PASS signature。</li>
+          <li>P4/P4.5 阶段已用故意改错验证过 checker 有「牙齿」：任一被比较状态错位会产生 <code>TRACECMP_MISMATCH</code>，不会被干净 UVM log 覆盖。</li>
+          <li>P4.5 修复了 signoff 假绿问题：recorded-only 的 tracecmp 失败不会被后续 log 重评估覆盖成 PASS。</li>
+          <li>P4.6 将 riscvdv full signoff 从 225/395 收口到 395/395，未降低 iteration、未扩大 skip、未新增 comparable 测试的 tracecmp disable。</li>
+        </ul>
+      </section>
+
+      <section id="not-done">
+        <h2>4. 没做 / 局限 / Out-of-scope（Not done）</h2>
+        <div class="callout danger">
+          本章是平台结论的边界。不要把 full profile PASS 解读成完整芯片签核通过；它只说明当前动态功能仿真 lane 的已定义检查通过。
+        </div>
+        <table>
+          <tr><th>边界项</th><th>当前事实</th><th>影响</th></tr>
+          <tr>
+            <td>23/57 个 riscv-dv 测试关闭 tracecmp</td>
+            <td>async/debug/interrupt/reset/single_step/dret 等测试标记 <code>tracecmp: disabled</code>。</td>
+            <td><code>riscvdv 395/395</code> 的含义是约 34 条测试走完整离线 tracecmp，23 条 async 组走 UVM agent / signature handshake。</td>
+          </tr>
+          <tr>
+            <td>2 个 CSR 测试 tracked-broken</td>
+            <td><code>riscv_csr_test</code>、<code>riscv_csr_hazard_test</code> 为 <code>skip_in_signoff</code>，未解决且未计入 signoff stage。</td>
+            <td>文档和报告必须继续显式列出，不能宣称 riscv-dv 原始 testlist 无任何已知问题。</td>
+          </tr>
+          <tr>
+            <td>微架构时序不可见</td>
+            <td>retirement co-sim 看不到分支预测内部状态、双发射 slotting 细节、流水线时序、store-buffer 内部、ECC 纠正过程等。</td>
+            <td>这些需要 SVA、formal、专用微架构 checker 或其他验证阶段覆盖。</td>
+          </tr>
+          <tr>
+            <td>参考模型信任前提</td>
+            <td>EH2-Spike 的自定义 CSR、PMP/ePMP、trap、memory map 按 EH2 PRM 建模。</td>
+            <td>co-sim 依赖参考模型正确；当前没有独立指标量化 ref-model 保真度。</td>
+          </tr>
+          <tr>
+            <td>覆盖率低项未 gate</td>
+            <td>assert 33.33%、fsm 54.74%、toggle 53.27%、overall 64.23% 均 collected but ungated。</td>
+            <td>full PASS 不等于所有覆盖率指标达标。</td>
+          </tr>
+        </table>
+        <h3>永久范围之外</h3>
+        <table>
+          <tr><th>范围之外项目</th><th>说明</th></tr>
+          <tr><td>formal property</td><td>断言证明、协议形式化、状态空间证明不属于本平台。</td></tr>
+          <tr><td>LEC 等价</td><td>RTL 与综合网表等价性由独立等价检查完成。</td></tr>
+          <tr><td>综合、STA、power、physical</td><td>时序收敛、功耗、布局布线和物理签核属于后端 lane。</td></tr>
+          <tr><td>gate-level sim</td><td>门级仿真、SDF 回标和 X 传播检查不是本平台目标。</td></tr>
+          <tr><td>CDC / RDC</td><td>跨时钟、复位域收敛和结构分析由专用工具完成。</td></tr>
+          <tr><td>security / side-channel</td><td>安全属性、侧信道和故障注入不是当前 checker 范围。</td></tr>
+          <tr><td>PPA / 性能</td><td>性能、功耗、面积、吞吐和延迟指标不由离线 tracecmp 判断。</td></tr>
+        </table>
       </section>
 
       <section id="architecture">
-        <h2>检查链路</h2>
+        <h2>5. 架构与原理</h2>
+        <h3>数据流</h3>
         <pre><code>EH2 RTL
-  | retire/probe/RVFI-like signals
-  v
-eh2_rvvi_adapter.sv
-  | RVVI-TRACE dump: hart/order/pc/insn/trap/GPR/CSR/memory sidebands
-  v
-rvvi_trace_to_trace_csv.py
-  | DUT CSV
-  v
-trace_compare_full.py  &lt;-- ref CSV from spike_rvvi_main.cc + spike_cosim.cc
-  |
-  v
-PC + GPR + CSR + memory compare result</code></pre>
-        <p>
-          `eh2_rvvi_adapter.sv` 是核专属边界，负责把 EH2 双发射、双 hart、异步写回、
-          CSR 和 store 事件整理成标准 RVVI-TRACE。离线参考侧由 `spike_rvvi_main.cc`
-          直接调用 `SpikeCosim` 的 ref-only helper 生成 CSV。
-        </p>
-        <p>
-          在线 RVVI checker 已删除。当前 pass/fail 的架构态主路径是离线 tracecmp。
-        </p>
-      </section>
+  └─ retire / RVFI / probe / bus sideband
+      └─ eh2_rvvi_adapter.sv
+          └─ standard RVVI-TRACE dump
+              └─ rvvi_trace_to_trace_csv.py
+                  └─ DUT CSV
 
-      <section id="split">
-        <h2>riscv-dv 分流</h2>
+ELF + DUT hart schedule
+  └─ spike_rvvi_main.cc
+      └─ SpikeCosim ref-only helpers
+          └─ reference CSV
+
+DUT CSV + reference CSV
+  └─ trace_compare_full.py
+      └─ PC + instruction + GPR + CSR + memory comparison</code></pre>
+        <h3>RVVI 边界</h3>
+        <p>
+          RVVI-TRACE 接口是通用边界；EH2 特有复杂度集中在 <code>eh2_rvvi_adapter.sv</code>。
+          适配器负责把双发射 i0/i1、hart/order、异步 load/div 写回、CSR 写、store sideband 和 trap 信息整理成标准 trace。
+          转换器和比对器只消费通用文本/CSV，不读取 EH2 RTL 层级。
+        </p>
+        <h3>core-agnostic 与核专属三处</h3>
         <table>
-          <thead>
-            <tr><th>类别</th><th>数量</th><th>检查方式</th><th>说明</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>普通可比测试</td>
-              <td>约 34/57</td>
-              <td>完整离线 tracecmp</td>
-              <td>逐 retire 比 PC、GPR、CSR 和内存事件。</td>
-            </tr>
-            <tr>
-              <td>async/debug/interrupt/reset/single_step/dret 组</td>
-              <td>23/57</td>
-              <td>UVM agent/signature handshake</td>
-              <td>这些 testlist 项标记 `tracecmp: disabled`，不是逐 retire tracecmp。</td>
-            </tr>
-            <tr>
-              <td>已知 tracked-broken CSR 项</td>
-              <td>2</td>
-              <td>`skip_in_signoff`</td>
-              <td>`riscv_csr_test`、`riscv_csr_hazard_test` 未解决，未计入 full signoff。</td>
-            </tr>
-          </tbody>
+          <tr><th>层</th><th>是否核专属</th><th>当前 EH2 文件</th><th>职责</th></tr>
+          <tr><td>RVVI adapter</td><td>是</td><td><code>dv/uvm/core_eh2/common/rvvi_agent/eh2_rvvi_adapter.sv</code></td><td>核信号到标准 RVVI-TRACE。</td></tr>
+          <tr><td>参考模型</td><td>是</td><td><code>dv/cosim/spike_cosim.cc</code></td><td>EH2 自定义 CSR、PMP/ePMP、trap、memory map、fault 建模。</td></tr>
+          <tr><td>核配置</td><td>是</td><td><code>riscv_core_setting.sv</code>、<code>testlist.yaml</code>、Makefile 配置</td><td>ISA、hart、内存窗口、测试策略和 signoff profile。</td></tr>
+          <tr><td>RVVI-TRACE 接口</td><td>否</td><td><code>vendor/rvvi</code></td><td>标准 trace 接口。</td></tr>
+          <tr><td>converter / comparator</td><td>否</td><td><code>rvvi_trace_to_trace_csv.py</code>、<code>trace_compare_full.py</code></td><td>通用格式转换和逐 retire 比对。</td></tr>
+          <tr><td>回归与 signoff</td><td>否</td><td><code>run_regress.py</code>、<code>signoff.py</code></td><td>调度、报告、coverage 和 gate。</td></tr>
         </table>
+        <h3>异步写回 tag 协议</h3>
+        <p>
+          EH2 的非阻塞 load 和 div/rem 可能在 retire 后异步写回。adapter 在 retire 行输出精确 tag，
+          在完成行输出同一 tag；converter 以 <code>(hart, source, tag)</code> 优先认领 pending retire 行。
+          这样可以处理多 outstanding load、back-to-back load、div 与 load 交织、写端口 cancel-overwrite，
+          同时避免退回到 <code>suppress_gpr</code> 这类屏蔽真实写回的做法。
+        </p>
+        <pre><code>retire row: hart|order|pc|insn|trap|mode|gpr=...|csr=...|mem=...|tag=load:N
+async row : A|hart|load|xRD:VALUE|tag=N
+async row : A|hart|div |xRD:VALUE|tag=N</code></pre>
+        <h3>双 hart 与共享 DCCM</h3>
+        <p>
+          双 hart 比对不假设 round-robin。DUT CSV 的每行携带 hart，standalone ref 按 DUT hart schedule 步进。
+          共享 DCCM 一致性通过 byte-enable 展开的内存写集合检查：任一 hart 对共享地址的架构 store
+          都必须与参考模型在同一 retire 行产生相同 byte map。
+        </p>
+        <h3>同步 trap 与异步 bypass</h3>
+        <p>
+          同步异常（illegal、PMP/ePMP fault、load/store fault、取指 fault 等）由 EH2-Spike 参考模型架构化产生，
+          并比较 <code>mcause</code>、<code>mtval</code>、<code>mepc</code> 等相关 CSR。异步 interrupt/debug/reset
+          的时序不适合用单条 retire lockstep 表达，因此在 testlist 中明确使用 UVM agent 或 signature handshake
+          作为替代 checker。
+        </p>
       </section>
 
-      <section id="scope">
-        <h2>范围边界</h2>
+      <section id="modeling">
+        <h2>6. 自定义建模</h2>
+        <h3>EH2 自定义 CSR（29 个）</h3>
         <p>
-          本平台给出的结论是完整的功能仿真（dynamic-functional）结论，不是全部芯片验证结论。
-          一次 full profile PASS 表示：在所跑 seed 上，tracecmp 组与 EH2-Spike 架构态一致，
-          async 组通过 UVM/signature 检查，compliance signature 合规。
+          清单来自 <code>dv/uvm/core_eh2/riscv_dv_extension/riscv_core_setting.sv</code> 的
+          <code>custom_csr[]</code>，并在 <code>docs/tracecmp_delivery_p4.md</code> 中记录。比对器本身不硬编码这些 CSR，
+          由 adapter/reference 侧按 EH2 PRM 归一后输出。
         </p>
         <table>
-          <thead>
-            <tr><th>不在本平台范围</th><th>说明</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>formal property</td><td>需独立 formal 环境证明。</td></tr>
-            <tr><td>LEC 等价</td><td>RTL 与门级等价属于独立流程。</td></tr>
-            <tr><td>综合、STA、power、physical</td><td>后端实现与时序功耗不由本平台判断。</td></tr>
-            <tr><td>gate-level sim</td><td>门级仿真不是当前 signoff stage。</td></tr>
-            <tr><td>CDC/RDC</td><td>跨时钟/复位域检查需专用工具。</td></tr>
-            <tr><td>security/side-channel</td><td>安全与侧信道需要独立威胁模型和测试。</td></tr>
-            <tr><td>PPA/性能</td><td>性能、面积、功耗指标不由 cosim 判定。</td></tr>
-          </tbody>
+          <tr><th>CSR</th><th>名称</th><th>CSR</th><th>名称</th><th>CSR</th><th>名称</th></tr>
+          <tr><td><code>0x7ff</code></td><td>mscause</td><td><code>0x7c0</code></td><td>mrac</td><td><code>0x7c9</code></td><td>mfdc</td></tr>
+          <tr><td><code>0x7f8</code></td><td>mcgc</td><td><code>0x7c6</code></td><td>mpmc</td><td><code>0x7c2</code></td><td>mcpc</td></tr>
+          <tr><td><code>0x7c4</code></td><td>dmst</td><td><code>0x7ce</code></td><td>mfdht</td><td><code>0x7cf</code></td><td>mfdhs</td></tr>
+          <tr><td><code>0xfc4</code></td><td>mhartnum</td><td><code>0x7fc</code></td><td>mhartstart</td><td><code>0x7fe</code></td><td>mnmipdel</td></tr>
+          <tr><td><code>0x7d2</code></td><td>mitcnt0</td><td><code>0x7d5</code></td><td>mitcnt1</td><td><code>0x7d3</code></td><td>mitb0</td></tr>
+          <tr><td><code>0x7d6</code></td><td>mitb1</td><td><code>0x7d4</code></td><td>mitctl0</td><td><code>0x7d7</code></td><td>mitctl1</td></tr>
+          <tr><td><code>0xbc0</code></td><td>mdeau</td><td><code>0xfc0</code></td><td>mdseac</td><td><code>0x7f0</code></td><td>micect</td></tr>
+          <tr><td><code>0x7f1</code></td><td>miccmect</td><td><code>0x7f2</code></td><td>mdccmect</td><td><code>0xbc8</code></td><td>meivt</td></tr>
+          <tr><td><code>0xfc8</code></td><td>meihap</td><td><code>0xbc9</code></td><td>meipt</td><td><code>0xbca</code></td><td>meicpct</td></tr>
+          <tr><td><code>0xbcc</code></td><td>meicurpl</td><td><code>0xbcb</code></td><td>meicidpl</td><td></td><td></td></tr>
         </table>
-        <div class="note">
-          参考模型信任假设：EH2-Spike 中的自定义 CSR、PMP/ePMP、trap 和内存行为按 EH2 PRM
-          建模。cosim 结果依赖该参考模型正确。
-        </div>
-      </section>
-
-      <section id="coverage">
-        <h2>覆盖率</h2>
-        <p>
-          full signoff 会收集覆盖率，但报告必须区分 gated 与 collected but ungated。
-          P4.6 实测值为 assert 33%、fsm 54%、toggle 53%、line 91%、branch 83%、
-          functional 69%、overall 64%。当前默认 gate 是 line 和 functional；assert、fsm、
-          toggle、branch、overall 作为趋势数据收集，不应被解读为已达高覆盖率标准。
-        </p>
-      </section>
-
-      <section id="components">
-        <h2>关键组件</h2>
+        <h3>PMP / ePMP / trap</h3>
+        <ul>
+          <li>参考模型按 ELF section VMA 装载镜像，避免随机 PMP/ePMP 测试中 ref 与 DUT 地址空间不一致。</li>
+          <li>PMP/ePMP 的 region matching、fault 抑制、取指 fault、load/store fault 和 CSR/trap 结果在 EH2-Spike 侧建模。</li>
+          <li>fault 后被抑制的 GPR 写和内存写不能进入 CSV；trap 相关 CSR 写需要与 DUT 架构结果一致。</li>
+          <li>P4.6 后 <code>riscv_pmp_out_of_bounds_test</code> 50/50、PMP/ePMP 随机与基础组均通过。</li>
+        </ul>
+        <h3>非确定源与 mask 原则</h3>
         <table>
-          <thead>
-            <tr><th>路径</th><th>职责</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><code>dv/uvm/core_eh2/common/rvvi_agent/eh2_rvvi_adapter.sv</code></td><td>EH2 retire/probe 到 RVVI-TRACE 的核专属适配器。</td></tr>
-            <tr><td><code>dv/cosim/spike_cosim.cc</code> / <code>.h</code></td><td>EH2-Spike 参考模型，自定义 CSR、PMP/ePMP、trap、内存和异步写回建模集中在这里。</td></tr>
-            <tr><td><code>dv/cosim/spike_rvvi_main.cc</code></td><td>standalone ref CSV 生成器，供离线 tracecmp 使用。</td></tr>
-            <tr><td><code>dv/uvm/core_eh2/scripts/trace_compare_full.py</code></td><td>核无关 trace comparator，比较 PC、GPR、CSR 和内存事件。</td></tr>
-            <tr><td><code>dv/uvm/core_eh2/scripts/rvvi_trace_to_trace_csv.py</code></td><td>核无关 RVVI-TRACE dump 到 CSV 的转换器。</td></tr>
-            <tr><td><code>vendor/rvvi</code></td><td>vendored 上游 RVVI-TRACE 接口，原样保留。</td></tr>
-          </tbody>
+          <tr><th>来源</th><th>处理原则</th></tr>
+          <tr><td><code>mcycle</code> / <code>mcycleh</code></td><td>比对器支持命令行 CSR mask；当前 full signoff 没有依赖额外 mask 做绿。</td></tr>
+          <tr><td><code>minstret</code> / <code>minstreth</code></td><td>同样支持显式 mask，但 mask 必须有注释依据，不能作为万能消音器。</td></tr>
+          <tr><td>timer / interrupt / debug async</td><td>不进入离线 tracecmp，由 UVM agent 或 signature handshake 验证。</td></tr>
+          <tr><td>WARL / WPRI 位</td><td>在 adapter/reference 侧按 EH2 语义归一，比对器不写核专属规则。</td></tr>
         </table>
       </section>
 
       <section id="usage">
-        <h2>常用命令</h2>
-        <pre><code>cp env.mk.example env.mk
-make spike
-make smoke
-make regress TESTLIST=cosim
-make smoke CONFIG=dual_thread SIM_OPTS="+rvvi_nhart=2"
-make signoff PROFILE=full
-python3 -m pytest dv/uvm/core_eh2/scripts/tests/ -q</code></pre>
-        <p>
-          机器路径只写入 `env.mk`。仓库内 vendored Spike、riscv-dv、riscv-tests 和 RVVI。
-          `CONFIG=dual_thread` 使用 NHART=2 的双 hart SMT 配置。
-        </p>
-      </section>
-
-      <section id="signoff">
-        <h2>signoff 含义</h2>
+        <h2>7. 使用指南</h2>
+        <h3>目录结构</h3>
         <table>
-          <thead>
-            <tr><th>Stage</th><th>P4.6 实测状态</th><th>说明</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>smoke</td><td>1/1</td><td>最小功能仿真路径。</td></tr>
-            <tr><td>directed</td><td>34/40</td><td>含已记录 threshold waiver。</td></tr>
-            <tr><td>cosim</td><td>7/7</td><td>定向 tracecmp 证明点。</td></tr>
-            <tr><td>riscvdv</td><td>395/395</td><td>tracecmp 组 + async UVM/signature 组。</td></tr>
-            <tr><td>compliance</td><td>50/50</td><td>官方 signature。</td></tr>
-          </tbody>
+          <tr><th>路径</th><th>内容</th></tr>
+          <tr><td><code>dv/cosim</code></td><td>EH2-Spike 参考模型、standalone ref CSV 生成器。</td></tr>
+          <tr><td><code>dv/uvm/core_eh2</code></td><td>EH2 UVM testbench、RVVI adapter、riscv-dv 扩展、回归脚本。</td></tr>
+          <tr><td><code>dv/uvm/riscv_compliance</code></td><td>compliance signature 流。</td></tr>
+          <tr><td><code>rtl</code></td><td>本平台使用的 RTL snapshot 和 wrapper。</td></tr>
+          <tr><td><code>tests/asm</code></td><td>最小 smoke / directed 汇编输入。</td></tr>
+          <tr><td><code>vendor</code></td><td>vendored riscv-dv、Spike、riscv-tests、RVVI。</td></tr>
+          <tr><td><code>build</code></td><td>本地构建、仿真、报告产物，不作为源码提交。</td></tr>
+        </table>
+        <h3>机器前提</h3>
+        <ul>
+          <li>VCS 或 Incisive / irun。</li>
+          <li>支持 C++17 的 g++，系统 gcc 4.8.5 不够。</li>
+          <li>riscv32 gcc 工具链，例如 <code>riscv32-unknown-elf-gcc</code>。</li>
+          <li>机器相关路径写入 <code>env.mk</code>；仓库只提交 <code>env.mk.example</code>。</li>
+        </ul>
+        <pre><code>cp env.mk.example env.mk
+# 按机器设置 SPIKE_CXX、VCS_HOME 或 NC_INSTALL、RISCV_PREFIX 等
+make spike
+make cosim
+make smoke</code></pre>
+        <h3>常用命令与预期</h3>
+        <table>
+          <tr><th>命令</th><th>预期</th></tr>
+          <tr><td><code>make spike</code></td><td>在库内构建 Spike，完成后有 <code>vendor/spike/install</code>。</td></tr>
+          <tr><td><code>make cosim</code></td><td>生成 <code>build/libcosim.so</code>。</td></tr>
+          <tr><td><code>make rvviref BINARY=tests/asm/smoke.elf</code></td><td>生成 standalone ref trace CSV。</td></tr>
+          <tr><td><code>make smoke</code></td><td>smoke 1/1 PASS。</td></tr>
+          <tr><td><code>make regress TESTLIST=cosim</code></td><td>cosim directed 7/7 PASS。</td></tr>
+          <tr><td><code>make regress TESTLIST=riscvdv</code></td><td>运行 riscv-dv testlist，按每项配置选择 tracecmp 或 agent/signature。</td></tr>
+          <tr><td><code>make compliance</code></td><td>compliance signature 通过。</td></tr>
+          <tr><td><code>make signoff PROFILE=full</code></td><td>完整动态功能仿真 profile：smoke、directed、cosim、riscvdv、compliance 和 coverage 汇总。</td></tr>
+          <tr><td><code>python3 -m pytest dv/uvm/core_eh2/scripts/tests/ -q</code></td><td>脚本和静态回归单测通过。</td></tr>
         </table>
       </section>
 
       <section id="onboarding">
-        <h2>新核接入</h2>
+        <h2>8. 新核接入（Onboarding）</h2>
         <p>
-          本仓可以作为新核功能仿真模板。换核时只改三处核专属层：RVVI 适配器、参考模型、
-          核配置；RVVI-TRACE 接口、trace comparator、riscv-dv/UVM 回归、signoff、覆盖率框架和
-          compliance signature 流保持核无关。详见 <a href="onboarding.md">docs/onboarding.md</a>。
+          本仓可以作为新 RISC-V 核的功能仿真模板。详细 recipe 保留在 <code>docs/onboarding.md</code>；
+          本节给出与当前 HTML 一致的边界和最小步骤。
+        </p>
+        <h3>换核只改三处</h3>
+        <ol>
+          <li><strong>RVVI 适配器：</strong>把新核 retire、写回、CSR、trap、store、hart/order 信号映射到标准 RVVI-TRACE。</li>
+          <li><strong>参考模型：</strong>基于 Spike 补该核自定义 CSR、PMP/ePMP、trap、memory map、reset 状态和架构扩展。</li>
+          <li><strong>核配置：</strong>ISA、XLEN、hart 数、reset PC、内存窗口、riscv-dv setting、testlist、signoff profile。</li>
+        </ol>
+        <h3>通用层不动</h3>
+        <ul>
+          <li>vendored RVVI-TRACE 接口。</li>
+          <li>RVVI dump 到 CSV 的 converter。</li>
+          <li>逐 retire trace comparator。</li>
+          <li>riscv-dv 生成、UVM 回归调度、signoff 聚合、覆盖率框架。</li>
+          <li>compliance signature 流。</li>
+        </ul>
+        <h3>最小接入步骤</h3>
+        <ol>
+          <li>建立核配置，固定 ISA、XLEN、hart 数、reset PC、内存窗口和工具链。</li>
+          <li>先写单 hart、单 retire 的 RVVI adapter，跑 smoke 的 PC/insn 流。</li>
+          <li>接 standalone ref CSV 生成器，确保 ref 按 DUT hart schedule 步进。</li>
+          <li>逐步打开 GPR、CSR、memory 比对；每类用 directed 测试先收敛。</li>
+          <li>补该核 PRM 规定的自定义 CSR、PMP/ePMP、trap 和 fault 语义。</li>
+          <li>接 riscv-dv；普通同步测试走 tracecmp，异步测试只有在有替代 checker 时才允许 disabled。</li>
+          <li>接 compliance signature。</li>
+          <li>跑 full signoff，并在文档中记录 tracecmp/agent split、coverage gate、skip 项和 ref-model 信任假设。</li>
+        </ol>
+        <h3>EH2 已填范例</h3>
+        <table>
+          <tr><th>层</th><th>EH2 实现</th><th>说明</th></tr>
+          <tr><td>RVVI adapter</td><td><code>eh2_rvvi_adapter.sv</code></td><td>处理双发射 i0/i1、NHART=1/2、异步 load/div 写回、CSR 和 store sideband。</td></tr>
+          <tr><td>参考模型</td><td><code>spike_cosim.cc</code> / <code>spike_cosim.h</code></td><td>建模 EH2 自定义 CSR、PMP/ePMP、trap、DCCM、mailbox、低地址取指空洞、原子和异步写回。</td></tr>
+          <tr><td>standalone ref</td><td><code>spike_rvvi_main.cc</code></td><td>直接调用 <code>SpikeCosim</code> ref-only helper，生成 riscv-dv 风格 CSV。</td></tr>
+          <tr><td>核配置</td><td><code>riscv_core_setting.sv</code>、<code>testlist.yaml</code>、Makefile</td><td>配置 RV32、EH2 memory map、single/dual thread 和 signoff stage。</td></tr>
+        </table>
+      </section>
+
+      <section id="tests">
+        <h2>9. 测试体系清单</h2>
+        <h3>stage 与 checker</h3>
+        <table>
+          <tr><th>测试体系</th><th>规模 / 当前结果</th><th>主要 checker</th></tr>
+          <tr><td>smoke</td><td>1/1 PASS</td><td>RVVI-TRACE dump + UVM run + tracecmp。</td></tr>
+          <tr><td>cosim directed</td><td>7/7 PASS</td><td>离线 tracecmp，覆盖 ALU、load/store、dual issue、exception、bitmanip、atomic 等。</td></tr>
+          <tr><td>directed</td><td>34/40 PASS，stage waiver</td><td>混合 tracecmp、UVM checker 和 directed 预期；6 个失败由 stage threshold waiver 覆盖。</td></tr>
+          <tr><td>riscv-dv</td><td>395/395 PASS</td><td>约 34 条同步测试走 tracecmp；23 条 async 组走 UVM agent/signature。</td></tr>
+          <tr><td>compliance</td><td>50/50 PASS</td><td>官方 signature 逐字节比较，覆盖 rv32ui、rv32um、rv32uc。</td></tr>
+          <tr><td>pytest</td><td>216 passed / 1 skipped</td><td>脚本单测、静态防回归、报告聚合逻辑。</td></tr>
+        </table>
+        <h3>23 个 riscv-dv async / bypass 测试</h3>
+        <table>
+          <tr><th>测试</th><th>替代 checker</th><th>测试</th><th>替代 checker</th></tr>
+          <tr><td><code>riscv_interrupt_test</code></td><td>irq agent / signature</td><td><code>riscv_irq_single_test</code></td><td>irq agent / signature</td></tr>
+          <tr><td><code>riscv_debug_test</code></td><td>jtag / halt_run agent</td><td><code>riscv_debug_csr_test</code></td><td>jtag / halt_run agent</td></tr>
+          <tr><td><code>riscv_breakpoint_test</code></td><td>debug agent</td><td><code>riscv_reset_test</code></td><td>reset / UVM checks</td></tr>
+          <tr><td><code>riscv_single_step_test</code></td><td>debug agent</td><td><code>riscv_debug_wfi_test</code></td><td>debug agent</td></tr>
+          <tr><td><code>riscv_debug_during_csr_test</code></td><td>debug agent</td><td><code>riscv_debug_ebreak_test</code></td><td>debug agent</td></tr>
+          <tr><td><code>riscv_irq_wfi_test</code></td><td>irq agent / signature</td><td><code>riscv_irq_csr_test</code></td><td>irq agent / signature</td></tr>
+          <tr><td><code>riscv_irq_nest_test</code></td><td>irq agent / signature</td><td><code>riscv_irq_in_debug_test</code></td><td>irq + debug agents</td></tr>
+          <tr><td><code>riscv_debug_in_irq_test</code></td><td>irq + debug agents</td><td><code>riscv_dret_test</code></td><td>debug agent</td></tr>
+          <tr><td><code>riscv_debug_ebreakmu_test</code></td><td>debug agent</td><td><code>riscv_single_debug_pulse_test</code></td><td>debug agent</td></tr>
+          <tr><td><code>riscv_debug_triggers_test</code></td><td>debug trigger agent</td><td><code>riscv_debug_stress_test</code></td><td>debug agent</td></tr>
+          <tr><td><code>riscv_debug_branch_jump_test</code></td><td>debug ROM / agent</td><td><code>riscv_debug_csr_entry_test</code></td><td>debug agent</td></tr>
+          <tr><td><code>riscv_assorted_traps_interrupts_debug_test</code></td><td>irq + debug agents</td><td></td><td></td></tr>
+        </table>
+        <h3>UVM agent</h3>
+        <ul>
+          <li><code>trace_agent</code> / DUT probe monitor：采集 retire、probe、store、CSR 等 sideband。</li>
+          <li><code>irq_agent</code>：驱动和检查中断路径。</li>
+          <li><code>jtag_agent</code> 与 <code>halt_run_agent</code>：覆盖 debug entry、resume、single-step、dret、trigger 等路径。</li>
+          <li><code>axi4_agent</code>：提供总线事务和错误注入相关检查。</li>
+        </ul>
+      </section>
+
+      <section id="known">
+        <h2>10. 已知问题与后续</h2>
+        <table>
+          <tr><th>项</th><th>当前状态</th><th>建议后续</th></tr>
+          <tr><td><code>riscv_csr_test</code></td><td><code>skip_in_signoff</code> tracked-broken，未解决。</td><td>单独拆 CSR WARL/WPRI、debug CSR 和 custom CSR 期望，修到可纳入 signoff。</td></tr>
+          <tr><td><code>riscv_csr_hazard_test</code></td><td><code>skip_in_signoff</code> tracked-broken，未解决。</td><td>补 hazard 场景下 CSR 参考模型和 adapter 归一策略。</td></tr>
+          <tr><td>assert / fsm / toggle 覆盖率</td><td>已收集但未 gate，assert 33.33%、fsm 54.74%、toggle 53.27%。</td><td>增加定向激励和 coverage closure 计划，再逐步提高 gate。</td></tr>
+          <tr><td>ref-model 信任</td><td>EH2-Spike 是 co-sim oracle，未独立量化保真度。</td><td>增加 PRM 映射表、directed reference tests、差分单测和代码审查记录。</td></tr>
+          <tr><td>异步组非 tracecmp</td><td>23 个 riscv-dv async 组由 agent/signature 验证。</td><td>保留该方法学；若未来要逐 retire 覆盖，需要先定义异步事件的架构对齐语义。</td></tr>
+        </table>
+      </section>
+
+      <section id="evidence">
+        <h2>证据与来源</h2>
+        <table>
+          <tr><th>来源</th><th>用途</th></tr>
+          <tr><td><code>build/signoff_vcs/signoff_status.json</code></td><td>full signoff stage、coverage、skip、blockers 的权威机器可读结果。</td></tr>
+          <tr><td><code>build/signoff_vcs/signoff_report.md</code></td><td>人读 signoff 报告和 coverage gated / ungated 表。</td></tr>
+          <tr><td><code>docs/tracecmp_delivery_p4.md</code></td><td>P4/P4.5/P4.6 tracecmp 方法学、根因簇、异步 tag、CSR 清单和验证证据。</td></tr>
+          <tr><td><code>docs/onboarding.md</code></td><td>新核接入 recipe，与本文第 8 章保持一致。</td></tr>
+          <tr><td><code>dv/uvm/core_eh2/riscv_dv_extension/testlist.yaml</code></td><td>23 个 <code>tracecmp: disabled</code> 测试和 2 个 <code>skip_in_signoff</code> 测试的真实来源。</td></tr>
+          <tr><td><code>dv/uvm/core_eh2/riscv_dv_extension/riscv_core_setting.sv</code></td><td>29 个 EH2 自定义 CSR 清单。</td></tr>
+          <tr><td><code>Makefile</code></td><td>make 目标、机器前提变量、signoff profile 调用方式。</td></tr>
+        </table>
+        <p class="small">
+          仓库状态说明：项目依赖 vendored 在 <code>vendor/</code>；机器相关路径仅应写在本地 <code>env.mk</code>。
+          remote 为 <code>origin git@github.com:bzambition/eh2-cosim-veri.git</code>。
         </p>
       </section>
     </main>
