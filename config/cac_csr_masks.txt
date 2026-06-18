@@ -1,0 +1,17 @@
+# CAC CSR compare masks for online lockstep.
+# Format: <csr-address> <compare-mask> # reason
+#
+# A mask bit of 1 means compare this bit; 0 means ignore this bit.
+# Keep this file narrow: do not add functional CSRs here to make tests pass.
+
+0xc00 0x00000000 # cycle: cycle source is simulator/model scheduling dependent.
+0xc80 0x00000000 # cycleh: high half of cycle.
+0xc01 0x00000000 # time: wall/timer source is not synchronized to RTL retire.
+0xc81 0x00000000 # timeh: high half of time.
+0xc02 0x00000000 # instret: retire accounting may differ around debug/trap bookkeeping.
+0xc82 0x00000000 # instreth: high half of instret.
+0xb00 0x00000000 # mcycle: machine cycle counter is timing dependent.
+0xb80 0x00000000 # mcycleh: high half of mcycle.
+0xb02 0x00000000 # minstret: machine retire counter can differ around non-architectural events.
+0xb82 0x00000000 # minstreth: high half of minstret.
+0x344 0x00000000 # mip: interrupt-pending bits are driven by asynchronous IRQ injection/clear timing; Whisper config also marks mip mask=0.

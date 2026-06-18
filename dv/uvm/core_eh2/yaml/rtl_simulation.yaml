@@ -120,8 +120,7 @@ nc:
       +incdir+<tb_dir>/common/trace_agent
       +incdir+<tb_dir>/common/irq_agent
       +incdir+<tb_dir>/common/jtag_agent
-      +incdir+<eh2_root>/dv/cosim
-      -sv_lib <eh2_root>/build/libcosim.so
+      -sv_lib <eh2_root>/vendor/cosim-arch-checker/lib/libcosim.so
       -l <build_dir>/compile.log
     cov_opts: "-coverage all -covworkdir <build_dir>/cov_work -covoverwrite -covdut core_eh2_tb_top -covfile <tb_dir>/cov_full_nc.ccf"
     wave_opts: "-linedebug"
@@ -138,11 +137,10 @@ nc:
       +incdir+<tb_dir>/common/trace_agent
       +incdir+<tb_dir>/common/irq_agent
       +incdir+<tb_dir>/common/jtag_agent
-      +incdir+<eh2_root>/dv/cosim
       -f <tb_dir>/eh2_rtl.f -f <tb_dir>/eh2_shared.f -f <tb_dir>/eh2_tb.f
       -top core_eh2_tb_top -nclibdirname <build_dir>/INCA_libs
       -access +rwc -timescale 1ns/1ps -errormax 500
-      -sv_lib <eh2_root>/build/libcosim.so
+      -sv_lib <eh2_root>/vendor/cosim-arch-checker/lib/libcosim.so
       +UVM_TESTNAME=<rtl_test>
       +bin=<binary>
       +seed=<seed>

@@ -3,6 +3,8 @@ out/
 env.mk
 vendor/spike/build/
 vendor/spike/install/
+vendor/whisper/build-*/
+vendor/whisper/**/*.o
 dv/uvm/riscv_compliance/work/
 *.log
 *.fsdb
@@ -22,5 +24,8 @@ __pycache__/
 .scratch/
 *.key
 *.lck
+/tr_db.log
+/ucli.key
+/issfinal.log
 verdiLog/
 novas_*

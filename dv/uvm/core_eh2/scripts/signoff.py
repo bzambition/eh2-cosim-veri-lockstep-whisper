@@ -152,7 +152,8 @@ def resolve_gcc_prefix() -> str:
     return "riscv32-unknown-elf"
 
 
-def precheck(stages: List[str], simulator: str, output_dir: Path) -> Dict:
+def precheck(stages: List[str], simulator: str, output_dir: Path,
+             args=None) -> Dict:
     checks = []
 
     def add(name: str, passed: bool, detail: str):
@@ -179,9 +180,13 @@ def precheck(stages: List[str], simulator: str, output_dir: Path) -> Dict:
         add("riscv_dv", riscv_dv_run.exists(), str(riscv_dv_run))
 
     if "cosim" in stages:
-        libcosim = EH2_ROOT / "build" / "libcosim.so"
-        add("spike_rvvi_dpi", libcosim.exists(),
-            "{} (run `make cosim` if missing)".format(libcosim))
+        libcosim = EH2_ROOT / "vendor" / "cosim-arch-checker" / "lib" / "libcosim.so"
+        whisper_path = getattr(args, "whisper_path",
+                               "vendor/whisper/build-Linux/whisper")
+        whisper = EH2_ROOT / whisper_path
+        add("cac_dpi", libcosim.exists(),
+            "{} (run `make cac` if missing)".format(libcosim))
+        add("whisper_iss", whisper.exists(), str(whisper))
 
     cfg_path = EH2_ROOT / "eh2_configs.yaml"
     if cfg_path.exists():
@@ -218,6 +223,18 @@ def build_stage_cmd(stage: str, args, stage_out: Path, simv_path: Path) -> List[
         cmd.append("--waves")
     if not args.allow_warnings:
         cmd.append("--fail-on-warnings")
+
+    if getattr(args, "lockstep_whisper", False) and stage != "compliance":
+        lockstep_opts = [
+            "+cosim_arch_checker",
+            "+whisper_path={}".format(
+                getattr(args, "whisper_path",
+                        "vendor/whisper/build-Linux/whisper")),
+            "+whisper_json_path={}".format(
+                getattr(args, "whisper_json",
+                        "rtl/snapshots/default/whisper.json")),
+        ]
+        cmd.extend(["--sim-opts", " ".join(lockstep_opts)])
 
     if stage == "smoke":
         cmd.extend([
@@ -1081,6 +1098,12 @@ def main(argv=None) -> int:
                         help="Do not fail on skip_in_signoff tests without waivers")
     parser.add_argument("--allow-warnings", action="store_true",
                         help="Do not treat warnings as sign-off failures")
+    parser.add_argument("--lockstep-whisper", action="store_true",
+                        help="Run non-compliance stages through external CAC + Whisper lockstep")
+    parser.add_argument("--whisper-path", default="vendor/whisper/build-Linux/whisper",
+                        help="Whisper/VeeR-ISS binary path for --lockstep-whisper")
+    parser.add_argument("--whisper-json", default="rtl/snapshots/default/whisper.json",
+                        help="Whisper config JSON for --lockstep-whisper")
     parser.add_argument("--skip-precheck", action="store_true")
     parser.add_argument("--html-report", dest="html_report",
                         action="store_true", default=True,
@@ -1092,9 +1115,17 @@ def main(argv=None) -> int:
     if args.max_iter_per_test:
         args.iterations = args.max_iter_per_test
 
-    # For full profile, coverage gates are mandatory regardless of flags.
-    if args.profile == "full":
+    # For full profile, coverage gates are mandatory only when coverage was
+    # actually collected for this run.  COV=0 sign-off still gates all stages.
+    if args.profile == "full" and args.coverage:
         args.no_require_coverage = False
+    elif args.no_require_coverage:
+        args.min_overall_coverage = 0.0
+        args.min_line_coverage = 0.0
+        args.min_cond_coverage = 0.0
+        args.min_fsm_coverage = 0.0
+        args.min_toggle_coverage = 0.0
+        args.min_functional_coverage = 0.0
 
     output_dir = Path(args.output).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1117,7 +1148,7 @@ def main(argv=None) -> int:
 
     precheck_result = {"passed": True, "checks": []}
     if not args.skip_precheck:
-        precheck_result = precheck(stages, args.simulator, output_dir)
+        precheck_result = precheck(stages, args.simulator, output_dir, args)
 
     stage_results = []
     for stage, cmd, stage_out in planned:

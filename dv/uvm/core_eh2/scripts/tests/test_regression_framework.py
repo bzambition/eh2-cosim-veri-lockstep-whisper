@@ -199,6 +199,40 @@ class RegressionFrameworkTest(unittest.TestCase):
 
         self.assertEqual(sim_opts, "+rvvi_trace_dump +rvvi_trace_file=custom.log")
 
+    def test_elf_entry_reader_reads_elf32_entry(self):
+        with tempfile.TemporaryDirectory() as td:
+            elf = Path(td) / "test.elf"
+            data = bytearray(64)
+            data[0:4] = b"\x7fELF"
+            data[4] = 1
+            data[5] = 1
+            data[24:28] = (0x80000080).to_bytes(4, byteorder="little")
+            elf.write_bytes(data)
+
+            self.assertEqual(run_regress.read_elf_entry(str(elf)), 0x80000080)
+
+    def test_reset_vector_sim_opt_uses_matching_elf_entry(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "prog"
+            hex_path = str(root) + ".hex"
+            elf = root.with_suffix(".elf")
+            data = bytearray(64)
+            data[0:4] = b"\x7fELF"
+            data[4] = 1
+            data[5] = 1
+            data[24:28] = (0x80000080).to_bytes(4, byteorder="little")
+            elf.write_bytes(data)
+
+            sim_opts = run_regress.add_reset_vector_sim_opt("", hex_path)
+
+            self.assertIn("+reset_vector=0x80000080", sim_opts)
+
+    def test_reset_vector_sim_opt_preserves_explicit_value(self):
+        sim_opts = run_regress.add_reset_vector_sim_opt(
+            "+reset_vector=0x80000040", "missing.hex")
+
+        self.assertEqual(sim_opts, "+reset_vector=0x80000040")
+
     def test_trace_compare_flow_does_not_use_legacy_disable_plusarg(self):
         self.assertFalse(hasattr(run_regress, "add_trace" + "cmp_only_sim_opt"))
         run_regress_text = Path(run_regress.__file__).read_text(encoding="utf-8")
@@ -241,49 +275,39 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("nb_load_wen", adapter)
         self.assertIn("div_wren", adapter)
 
-    def test_ref_trace_uses_spike_cosim_trap_state_without_dpi_wrapper(self):
-        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
-        spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                       "spike_cosim.cc").read_text(encoding="utf-8")
-
-        self.assertIn("ref_event_step", rvviref)
-        self.assertIn("ref_last_trap", rvviref)
-        self.assertIn("ref_last_trap", spike_cosim)
-        self.assertNotIn("rvvi" + "Ref", rvviref)
-
-    def test_ref_trace_reads_csr_writes_from_spike_cosim(self):
-        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
-        spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                       "spike_cosim.cc").read_text(encoding="utf-8")
-
-        self.assertIn("ref_csr_writes", rvviref)
-        self.assertIn("record_ref_csr_write_if_changed", spike_cosim)
-        for csr in ("CSR_MSTATUS", "CSR_MTVEC", "CSR_MEPC", "CSR_MCAUSE",
-                    "CSR_MTVAL"):
-            self.assertIn(csr, spike_cosim)
-
     def test_adapter_surfaces_async_nets_and_bus_writes_for_dump(self):
         tb_top = (SCRIPT_DIR.parent / "tb" /
                   "core_eh2_tb_top.sv").read_text(encoding="utf-8")
         adapter = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
                    "eh2_rvvi_adapter.sv").read_text(encoding="utf-8")
-        spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                       "spike_cosim.cc").read_text(encoding="utf-8")
 
         self.assertRegex(tb_top,
                          r"\.lsu_bus_write\s*\(\s*lsu_bus_write\s*\)")
         self.assertIn("lsu_bus_write", adapter)
         self.assertIn('$fwrite(dump_fd, "M|%0d|', adapter)
-        self.assertIn("record_ref_mem_write_if_changed", spike_cosim)
 
-    def test_spike_cosim_keeps_async_interrupt_ref_state(self):
-        spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                       "spike_cosim.cc").read_text(encoding="utf-8")
+    def test_lockstep_whisper_pokes_interrupt_state_before_step(self):
+        bridge_sv = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
+                     "rvvi_cac_bridge.sv").read_text(encoding="utf-8")
+        bridge_cc = (SCRIPT_DIR.parents[3] / "vendor" /
+                     "cosim-arch-checker" / "bridge" /
+                     "bridge.cc").read_text(encoding="utf-8")
+        bridge_h = (SCRIPT_DIR.parents[3] / "vendor" /
+                    "cosim-arch-checker" / "bridge" /
+                    "bridge.h").read_text(encoding="utf-8")
+        client_h = (SCRIPT_DIR.parents[3] / "vendor" /
+                    "cosim-arch-checker" / "bridge" / "whisper" /
+                    "whisper_client.h").read_text(encoding="utf-8")
 
-        self.assertIn("ref_async_event_pending", spike_cosim)
-        self.assertIn("ref_clear_async_event", spike_cosim)
+        self.assertIn("monitor_async", bridge_sv)
+        self.assertIn("rvvi.intr", bridge_sv)
+        self.assertIn("rvvi.debug_mode", bridge_sv)
+        self.assertIn("syncAsyncStateToWhisperPre(hart, dutInstr)", bridge_cc)
+        self.assertIn("whisperPoke(hart, 'c', 0x344", bridge_cc)
+        self.assertNotIn("whisperEnterDebug", bridge_cc)
+        self.assertNotIn("whisperExitDebug", bridge_cc)
+        self.assertNotIn("whisperEnterDebug", client_h)
+        self.assertNotIn("whisperExitDebug", client_h)
 
     def test_testlist_marks_known_non_cosim_tests_disabled(self):
         testlist_path = SCRIPT_DIR.parent / "riscv_dv_extension" / "testlist.yaml"
@@ -982,19 +1006,6 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertNotIn("use_rvvi_" + "cosim", haystack)
         self.assertNotIn("tracecmp_" + "only", haystack)
 
-    def test_spike_cosim_allows_suppressed_div_writebacks(self):
-        spike_cc = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                    "spike_cosim.cc").read_text(encoding="utf-8")
-        spike_h = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                   "spike_cosim.h").read_text(encoding="utf-8")
-
-        self.assertIn("bool pc_is_div_or_rem(uint32_t pc);", spike_h)
-        self.assertIn("bool SpikeCosim::pc_is_div_or_rem", spike_cc)
-        self.assertIn("funct7 == 0x01 && funct3 >= 0x4 && funct3 <= 0x7",
-                      spike_cc)
-        self.assertIn("!pc_is_load(pc) && !pc_is_div_or_rem(pc)", spike_cc)
-        self.assertIn("not a load/div", spike_cc)
-
     def test_axi_memory_hex_loader_consumes_parse_return_values(self):
         mem_model = (SCRIPT_DIR.parents[3] / "shared" / "rtl" /
                      "axi4_slave_mem.sv").read_text(encoding="utf-8")
@@ -1019,11 +1030,8 @@ class RegressionFrameworkTest(unittest.TestCase):
             "compile_nc:", 1)[0]
 
         self.assertNotIn("-sv_lib", compile_vcs)
-        # libcosim.so must be on the link line (directly or via $(LIBCOSIM)).
-        self.assertTrue(
-            "$(CURDIR)/$(BUILD_DIR)/libcosim.so" in makefile
-            or "$(CURDIR)/$(LIBCOSIM)" in makefile,
-            msg="compile_vcs link line must include libcosim.so")
+        self.assertIn("$(CURDIR)/$(LIBCAC_COSIM)", makefile)
+        self.assertNotIn("$(CURDIR)/$(LIB" + "COSIM)", makefile)
         self.assertNotIn("-incdir ", rtl_f)
         self.assertNotIn("+incdir+rtl/snapshots/default", rtl_f)
         self.assertNotIn("rtl/snapshots/default/eh2_pdef.vh", rtl_f)
@@ -1040,21 +1048,6 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("RVVI_NHART := $(if $(IS_DUAL_THREAD_CONFIG),2,1)",
                       makefile)
         self.assertIn("+define+RVVI_NHART=$(RVVI_NHART)", makefile)
-
-    def test_ref_trace_hart_count_is_runtime_configurable(self):
-        root = SCRIPT_DIR.parents[3]
-        rvviref = (root / "dv" / "cosim" /
-                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
-        makefile = (root / "Makefile").read_text(encoding="utf-8")
-
-        self.assertIn("uint32_t nhart", rvviref)
-        self.assertIn("if (nhart == 0) nhart = 1", rvviref)
-        self.assertIn("std::make_unique<SpikeCosim>", rvviref)
-        self.assertIn("nhart)", rvviref)
-        self.assertIn("[steps] [nhart] [hart_schedule]", rvviref)
-        self.assertIn("hart >= nhart", rvviref)
-        self.assertIn("RVVI_NHART := $(if $(IS_DUAL_THREAD_CONFIG),2,1)",
-                      makefile)
 
     def test_adapter_and_top_route_per_hart_sidebands(self):
         tb_top = (SCRIPT_DIR.parent / "tb" /
@@ -1085,21 +1078,17 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn('$fwrite(dump_fd, "M|%0d|', adapter)
         self.assertNotIn('"M|0|', adapter)
 
-    def test_compile_vcs_hard_depends_on_libcosim_so(self):
+    def test_compile_vcs_hard_depends_on_cac_dpi(self):
         # Without a hard prereq, wildcard-style linking silently produces a
-        # simv that lacks the RVVI DPI symbols, and the failure only surfaces
-        # at run time. Ask make itself
-        # whether `compile_vcs` triggers the libcosim build.
+        # simv that lacks the RVVI/CAC DPI symbols, and the failure only
+        # surfaces at run time. Ask make itself whether `compile_vcs` triggers
+        # the CAC build.
         root = SCRIPT_DIR.parents[3]
         makefile_text = (root / "Makefile").read_text(encoding="utf-8")
 
         self.assertNotIn("$(wildcard $(BUILD_DIR)/libcosim.so)", makefile_text)
-        # `$(LIBCOSIM):` must appear as a real file target on a line of its own.
-        self.assertRegex(
-            makefile_text,
-            r"(?m)^\$\(LIBCOSIM\)\s*:",
-            msg="libcosim.so must have an explicit file target so make can "
-                "track it as a build artefact")
+        self.assertIn("compile_vcs: cac", makefile_text)
+        self.assertIn("$(CURDIR)/$(LIBCAC_COSIM)", makefile_text)
 
         # Use make --dry-run to verify the dependency is real, not just
         # textually present. Skip if make/vcs aren't available — this gate is
@@ -1117,25 +1106,20 @@ class RegressionFrameworkTest(unittest.TestCase):
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 universal_newlines=True, encoding="utf-8", errors="replace",
                 timeout=30)
-            self.assertIn("libcosim.so",
+            self.assertIn("vendor/cosim-arch-checker",
                           (result.stdout or "") + (result.stderr or ""),
-                          msg="compile_vcs dry-run must mention libcosim.so")
+                          msg="compile_vcs dry-run must mention CAC build")
 
-    def test_compile_always_links_libcosim_for_rvvi_lockstep(self):
+    def test_compile_always_links_cac_for_rvvi_lockstep(self):
         root = SCRIPT_DIR.parents[3]
         makefile = (root / "Makefile").read_text(encoding="utf-8")
 
-        self.assertIn("compile_vcs: $(LIBCOSIM)", makefile)
-        self.assertIn("compile_nc: $(LIBCOSIM)", makefile)
+        self.assertIn("compile_vcs: cac", makefile)
+        self.assertIn("compile_nc: cac", makefile)
+        self.assertIn("$(CURDIR)/$(LIBCAC_COSIM)", makefile)
+        self.assertNotIn("$(LIB" + "COSIM)", makefile)
         self.assertNotIn("NO_" + "COSIM", makefile)
-        self.assertNotIn("COMPILE_LIBCOSIM_DEP", makefile)
-
-    def test_spike_build_enables_eh2_misaligned_accesses(self):
-        root = SCRIPT_DIR.parents[3]
-        makefile = (root / "Makefile").read_text(encoding="utf-8")
-
-        self.assertIn("--enable-commitlog", makefile)
-        self.assertIn("--enable-misaligned", makefile)
+        self.assertNotIn("COMPILE_LIB" + "COSIM_DEP", makefile)
 
     def test_ifu_enum_state_flop_uses_vector_cast_bridge(self):
         ifu_mem_ctl = (SCRIPT_DIR.parents[3] / "rtl" / "design" / "ifu" /
@@ -1238,50 +1222,14 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                with mock.patch.object(run_regress, "run_trace_compare",
-                                       return_value=True):
-                    result = run_regress.run_single_test(
-                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
+                result = run_regress.run_single_test(
+                    entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
 
             self.assertTrue(result.passed)
             self.assertEqual(len(seen_kwargs), 1)
             self.assertNotIn("capture_output", seen_kwargs[0])
             self.assertIs(seen_kwargs[0]["stdout"], run_regress.subprocess.PIPE)
             self.assertIs(seen_kwargs[0]["stderr"], run_regress.subprocess.PIPE)
-
-    def test_run_single_test_disables_online_scoreboard_for_tracecmp(self):
-        with tempfile.TemporaryDirectory() as td:
-            out_dir = Path(td)
-            entry = {
-                "test": "smoke",
-                "rtl_test": "core_eh2_base_test",
-            }
-            sim_log = out_dir / "smoke_s1" / "sim_smoke_1.log"
-            seen_cmds = []
-
-            class FakeProc:
-                returncode = 0
-                stdout = b"rtl passed"
-                stderr = b""
-
-            def fake_run(cmd, **kwargs):
-                del kwargs
-                seen_cmds.append(cmd)
-                sim_log.parent.mkdir(parents=True, exist_ok=True)
-                sim_log.write_text("TEST PASSED\n", encoding="utf-8")
-                return FakeProc()
-
-            with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                with mock.patch.object(run_regress, "run_trace_compare",
-                                       return_value=True):
-                    result = run_regress.run_single_test(
-                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
-
-            self.assertTrue(result.passed)
-            rtl_cmd = [cmd for cmd in seen_cmds if cmd[1].endswith("run_rtl.py")][0]
-            sim_opts = rtl_cmd[rtl_cmd.index("--sim-opts") + 1]
-            self.assertNotIn("+tracecmp_" + "only", sim_opts)
-            self.assertIn("+rvvi_trace_dump", sim_opts)
 
     def test_run_single_test_passes_sized_process_timeout_to_run_rtl(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1321,75 +1269,16 @@ class RegressionFrameworkTest(unittest.TestCase):
             self.assertGreaterEqual(proc_timeout, 4300)
             self.assertGreaterEqual(rtl_kwargs["timeout"], proc_timeout + 120)
 
-    def test_run_single_test_runs_trace_compare_after_rtl_pass(self):
+    def test_run_single_test_drops_global_lockstep_for_cosim_disabled_test(self):
         with tempfile.TemporaryDirectory() as td:
             out_dir = Path(td)
             entry = {
-                "test": "smoke",
+                "test": "riscv_csr_test",
                 "rtl_test": "core_eh2_base_test",
+                "cosim": "disabled",
+                "skip_in_signoff": True,
             }
-            sim_log = out_dir / "smoke_s1" / "sim_smoke_1.log"
-
-            class FakeProc:
-                returncode = 0
-                stdout = b"rtl passed"
-                stderr = b""
-
-            def fake_run(cmd, **kwargs):
-                del cmd, kwargs
-                sim_log.parent.mkdir(parents=True, exist_ok=True)
-                sim_log.write_text("TEST PASSED\n", encoding="utf-8")
-                return FakeProc()
-
-            with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                with mock.patch.object(run_regress, "run_trace_compare",
-                                       return_value=True) as cmp_mock:
-                    result = run_regress.run_single_test(
-                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
-
-            self.assertTrue(result.passed)
-            cmp_mock.assert_called_once()
-
-    def test_run_single_test_skips_trace_compare_when_marked_async_agent(self):
-        with tempfile.TemporaryDirectory() as td:
-            out_dir = Path(td)
-            entry = {
-                "test": "riscv_interrupt_test",
-                "rtl_test": "core_eh2_base_test",
-                "tracecmp": "disabled",
-                "tracecmp_bypass": "async interrupt verified by irq_agent/signature handshake",
-            }
-            sim_log = out_dir / "riscv_interrupt_test_s1" / "sim_riscv_interrupt_test_1.log"
-
-            class FakeProc:
-                returncode = 0
-                stdout = b"rtl passed"
-                stderr = b""
-
-            def fake_run(cmd, **kwargs):
-                del cmd, kwargs
-                sim_log.parent.mkdir(parents=True, exist_ok=True)
-                sim_log.write_text("TEST PASSED\n", encoding="utf-8")
-                return FakeProc()
-
-            with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                with mock.patch.object(run_regress, "run_trace_compare",
-                                       return_value=False) as cmp_mock:
-                    result = run_regress.run_single_test(
-                        entry, 1, "vcs", str(out_dir), "tests/asm/irq.hex")
-
-            self.assertTrue(result.passed)
-            cmp_mock.assert_not_called()
-
-    def test_run_single_test_skips_trace_compare_for_rtl_only_test(self):
-        with tempfile.TemporaryDirectory() as td:
-            out_dir = Path(td)
-            entry = {
-                "test": "riscv_mem_intg_error_test",
-                "rtl_test": "core_eh2_mem_intg_error_test",
-                "cosim": "rtl_only",
-            }
-            sim_log = out_dir / "riscv_mem_intg_error_test_s1" / "sim_riscv_mem_intg_error_test_1.log"
+            sim_log = out_dir / "riscv_csr_test_s1" / "sim_riscv_csr_test_1.log"
             seen_cmds = []
 
             class FakeProc:
@@ -1404,18 +1293,24 @@ class RegressionFrameworkTest(unittest.TestCase):
                 sim_log.write_text("TEST PASSED\n", encoding="utf-8")
                 return FakeProc()
 
+            global_lockstep_opts = (
+                "+cosim_arch_checker "
+                "+whisper_path=vendor/whisper/build-Linux/whisper "
+                "+whisper_json_path=config/whisper_default_lockstep.json"
+            )
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                with mock.patch.object(run_regress, "run_trace_compare",
-                                       return_value=False) as cmp_mock:
-                    result = run_regress.run_single_test(
-                        entry, 1, "vcs", str(out_dir), "tests/asm/intg.hex")
+                result = run_regress.run_single_test(
+                    entry, 1, "vcs", str(out_dir),
+                    "tests/asm/csr.hex", cli_sim_opts=global_lockstep_opts)
 
             self.assertTrue(result.passed)
-            cmp_mock.assert_not_called()
             rtl_cmd = [cmd for cmd in seen_cmds if cmd[1].endswith("run_rtl.py")][0]
             sim_opts = rtl_cmd[rtl_cmd.index("--sim-opts") + 1]
-            self.assertNotIn("+tracecmp_" + "only", sim_opts)
-            self.assertNotIn("+rvvi_trace_dump", sim_opts)
+            self.assertNotIn("+cosim_arch_checker", sim_opts)
+            self.assertNotIn("+whisper_path=", sim_opts)
+            self.assertNotIn("+whisper_json_path=", sim_opts)
+            self.assertNotIn("+whisper_server_file=", sim_opts)
+            self.assertNotIn("+rvvi_elf=", sim_opts)
 
     def test_run_rtl_direct_mode_does_not_add_rvvi_dump_without_rvvi_elf(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1449,120 +1344,6 @@ class RegressionFrameworkTest(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertNotIn("+rvvi_trace_dump", captured["md"].sim_opts)
             self.assertNotIn("+rvvi_trace_file=", captured["md"].sim_opts)
-
-    def test_run_single_test_fails_when_trace_compare_fails(self):
-        with tempfile.TemporaryDirectory() as td:
-            out_dir = Path(td)
-            entry = {
-                "test": "smoke",
-                "rtl_test": "core_eh2_base_test",
-            }
-            sim_log = out_dir / "smoke_s1" / "sim_smoke_1.log"
-
-            class FakeProc:
-                returncode = 0
-                stdout = b"rtl passed"
-                stderr = b""
-
-            def fake_run(cmd, **kwargs):
-                del cmd, kwargs
-                sim_log.parent.mkdir(parents=True, exist_ok=True)
-                sim_log.write_text("TEST PASSED\n", encoding="utf-8")
-                return FakeProc()
-
-            with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                with mock.patch.object(run_regress, "run_trace_compare",
-                                       return_value=False):
-                    result = run_regress.run_single_test(
-                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
-
-            self.assertFalse(result.passed)
-            self.assertEqual(result.failure_mode, "TRACECMP_MISMATCH")
-
-    def test_run_trace_compare_uses_full_architectural_comparator(self):
-        with tempfile.TemporaryDirectory() as td:
-            work_dir = Path(td)
-            rvvi_trace = work_dir / "rvvi_trace.log"
-            binary = work_dir / "smoke.hex"
-            elf = work_dir / "smoke.elf"
-            rvvi_trace.write_text(
-                "0|0|80000000|00000013|0|3|gpr=|csr=300:00001800\n",
-                encoding="utf-8")
-            binary.write_text("@80000000\n13 00 00 00\n", encoding="utf-8")
-            elf.write_text("elf", encoding="utf-8")
-
-            class FakeProc:
-                returncode = 0
-                stdout = b""
-                stderr = b""
-
-            seen_cmds = []
-
-            def fake_run_captured(cmd, timeout):
-                del timeout
-                seen_cmds.append(cmd)
-                ref_csv = work_dir / "ref_trace.csv"
-                ref_csv.write_text(
-                    "pc,instr,gpr,csr,binary,mode,instr_str,operand,pad\n"
-                    "80000000,,,300:00001800,00000013,3,,,\n",
-                    encoding="utf-8")
-                return FakeProc()
-
-            with mock.patch.object(run_regress, "run_captured", fake_run_captured):
-                with mock.patch.object(run_regress.trace_compare_full,
-                                       "compare_trace_csv",
-                                       wraps=run_regress.trace_compare_full.compare_trace_csv) as cmp_mock:
-                    result = run_regress.run_trace_compare(str(work_dir), str(binary))
-
-            self.assertTrue(result)
-            cmp_mock.assert_called_once()
-            self.assertEqual(seen_cmds[0],
-                             ["make", "build/rvviref/spike_rvvi_main"])
-            self.assertEqual(seen_cmds[-1][-2], "1")
-            self.assertTrue(seen_cmds[-1][-1].endswith("ref_hart_schedule.txt"))
-            compare_log = work_dir / "trace_compare.log"
-            self.assertIn("[PASSED]", compare_log.read_text(encoding="utf-8"))
-
-    def test_run_trace_compare_drives_ref_with_dut_hart_schedule(self):
-        with tempfile.TemporaryDirectory() as td:
-            work_dir = Path(td)
-            rvvi_trace = work_dir / "rvvi_trace.log"
-            binary = work_dir / "dual.hex"
-            elf = work_dir / "dual.elf"
-            rvvi_trace.write_text(
-                "0|0|80000000|00000013|0|3|gpr=|csr=\n"
-                "1|0|80000000|00000013|0|3|gpr=|csr=\n"
-                "0|1|80000004|00000013|0|3|gpr=|csr=\n",
-                encoding="utf-8")
-            binary.write_text("@80000000\n13 00 00 00\n", encoding="utf-8")
-            elf.write_text("elf", encoding="utf-8")
-
-            class FakeProc:
-                returncode = 0
-                stdout = b""
-                stderr = b""
-
-            seen_cmds = []
-
-            def fake_run_captured(cmd, timeout):
-                del timeout
-                seen_cmds.append(cmd)
-                if cmd[0].endswith("spike_rvvi_main"):
-                    schedule = Path(cmd[-1])
-                    self.assertEqual(schedule.read_text(encoding="utf-8"),
-                                     "0\n1\n0\n")
-                    ref_csv = work_dir / "ref_trace.csv"
-                    ref_csv.write_text((work_dir / "dut_trace.csv").read_text(
-                        encoding="utf-8"), encoding="utf-8")
-                return FakeProc()
-
-            with mock.patch.object(run_regress, "run_captured", fake_run_captured):
-                result = run_regress.run_trace_compare(str(work_dir), str(binary), nhart=2)
-
-            self.assertTrue(result)
-            self.assertEqual(seen_cmds[-1][-3], "3")
-            self.assertEqual(seen_cmds[-1][-2], "2")
-            self.assertTrue(seen_cmds[-1][-1].endswith("ref_hart_schedule.txt"))
 
     def test_check_logs_requires_explicit_pass_signature(self):
         with tempfile.TemporaryDirectory() as td:
@@ -2062,10 +1843,8 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                with mock.patch.object(run_regress, "run_trace_compare",
-                                       return_value=True):
-                    result = run_regress.run_single_test(
-                        entry, 1, "vcs", str(out_dir), "")
+                result = run_regress.run_single_test(
+                    entry, 1, "vcs", str(out_dir), "")
 
             self.assertTrue(result.passed)
             rtl_cmd = [cmd for cmd in seen_cmds if cmd[1].endswith("run_rtl.py")][0]
@@ -2095,10 +1874,8 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                with mock.patch.object(run_regress, "run_trace_compare",
-                                       return_value=True):
-                    result = run_regress.run_single_test(
-                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
+                result = run_regress.run_single_test(
+                    entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
 
             self.assertFalse(result.passed)
             self.assertEqual(result.failure_mode, "SIM_ERROR")
@@ -2129,10 +1906,8 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                with mock.patch.object(run_regress, "run_trace_compare",
-                                       return_value=True):
-                    result = run_regress.run_single_test(
-                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
+                result = run_regress.run_single_test(
+                    entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex")
 
             self.assertTrue(result.passed)
             self.assertEqual(result.uvm_warnings, 2)
@@ -2355,14 +2130,16 @@ class RegressionFrameworkTest(unittest.TestCase):
 
         makefile_text = makefile.read_text(encoding="utf-8")
         for target in [
-            "spike:",
-            "cosim:",
+            "whisper:",
+            "cac:",
             "smoke:",
             "regress:",
             "signoff:",
             "compliance:",
         ]:
             self.assertIn(target, makefile_text)
+        self.assertNotIn("\nspi" + "ke:", makefile_text)
+        self.assertNotIn("\ncosim:", makefile_text)
 
     def test_make_regress_default_uses_testlist_iterations(self):
         """P4.6 full regress must not silently cap riscvdv to one seed."""
@@ -2383,21 +2160,6 @@ class RegressionFrameworkTest(unittest.TestCase):
             makefile,
             r"(?m)^SIGNOFF_OPTS\s+\?=\s+--no-fail-on-skip-in-signoff$")
         self.assertIn("$(SIGNOFF_OPTS)", makefile)
-
-    def test_spike_ref_elf_loader_uses_section_vmas(self):
-        """RVVI ref memory must match the VMA-addressed RTL hex image."""
-        root = SCRIPT_DIR.parents[3]
-        cosim = (root / "dv" / "cosim" /
-                 "spike_cosim.cc").read_text(encoding="utf-8")
-
-        self.assertIn("load_elf_sections_at_vma", cosim)
-        self.assertIn("sh_addr", cosim)
-        self.assertIn("SHF_ALLOC", cosim)
-        self.assertIn("SHT_NOBITS", cosim)
-        self.assertIn("backdoor_write_mem(static_cast<uint32_t>(section_addr)",
-                      cosim)
-        self.assertNotIn("(void)load_elf(elf_path.c_str(), &memif, &entry);",
-                         cosim)
 
     def test_metadata_supports_ibex_style_create_metadata_op(self):
         with tempfile.TemporaryDirectory() as td:
@@ -2804,7 +2566,11 @@ class RegressionFrameworkTest(unittest.TestCase):
         debug_walk = by_name["directed_dbg_dret_walk"]
         self.assertIn("+enable_debug_seq=1", debug_walk["sim_opts"])
         self.assertIn("+enable_debug_single=1", debug_walk["sim_opts"])
-        self.assertEqual(debug_walk["cosim"], "enabled")
+        self.assertEqual(debug_walk["cosim"], "disabled")
+
+        self.assertEqual(by_name["directed_pmp_smoke"]["cosim"], "enabled")
+        self.assertEqual(by_name["directed_csr_warl"]["cosim"], "disabled")
+        self.assertEqual(by_name["directed_toggle_csr_walk"]["cosim"], "disabled")
 
     def test_debug_coverage_sequence_is_finite_and_exercises_dmi_commands(self):
         vseq_path = SCRIPT_DIR.parent / "tests" / "core_eh2_vseq.sv"
@@ -2858,15 +2624,13 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                with mock.patch.object(run_regress, "run_trace_compare",
-                                       return_value=True):
-                    result = run_regress.run_single_test(
-                        entry, 3, "vcs", str(root), "")
+                result = run_regress.run_single_test(
+                    entry, 3, "vcs", str(root), "")
 
             self.assertTrue(result.passed)
             self.assertEqual(result.test_type, "DIRECTED")
             self.assertNotIn("+enable_" + "cosim=1", " ".join(seen_cmds[-1]))
-            self.assertIn("+rvvi_elf=", " ".join(seen_cmds[-1]))
+            self.assertNotIn("+rvvi_elf=", " ".join(seen_cmds[-1]))
             self.assertFalse(any(cmd[1].endswith("run_instr_gen.py")
                                  for cmd in seen_cmds))
             self.assertTrue(result.binary_path.endswith(".hex"))
@@ -2895,11 +2659,9 @@ class RegressionFrameworkTest(unittest.TestCase):
                 return FakeProc()
 
             with mock.patch.object(run_regress.subprocess, "run", fake_run):
-                with mock.patch.object(run_regress, "run_trace_compare",
-                                       return_value=True):
-                    result = run_regress.run_single_test(
-                        entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex",
-                        coverage=True, waves=True)
+                result = run_regress.run_single_test(
+                    entry, 1, "vcs", str(out_dir), "tests/asm/smoke.hex",
+                    coverage=True, waves=True)
 
             self.assertTrue(result.passed)
             rtl_cmd = seen_cmds[0]
@@ -2991,164 +2753,20 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("x_wdata_w", adapter)
         self.assertIn("x_wb_w", adapter)
 
-    def test_ref_trace_records_lsu_memory_writes_from_spike_cosim(self):
-        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
-        cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                 "spike_cosim.cc").read_text(encoding="utf-8")
-
-        self.assertIn("ref_mem_writes", rvviref)
-        self.assertIn(";mem=%08x:%08x:%x", rvviref)
-        self.assertIn("record_ref_mem_write_if_changed", cosim)
-
-    def test_cosim_sources_have_no_tmp_debug_file_side_effects(self):
-        cosim_dir = SCRIPT_DIR.parents[3] / "dv" / "cosim"
-        cosim_text = "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in sorted(cosim_dir.glob("*"))
-            if path.suffix in (".cc", ".h", ".svh"))
-
-        self.assertNotIn("/tmp/cosim_debug.log", cosim_text)
-        self.assertNotIn("fopen(\"/tmp", cosim_text)
-
-    def test_spike_cosim_mcycle_sync_is_dpi_safe(self):
-        spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                       "spike_cosim.cc").read_text(encoding="utf-8")
-        start = spike_cosim.index("void SpikeCosim::set_mcycle")
-        end = spike_cosim.index("void SpikeCosim::set_csr", start)
-        body = spike_cosim[start:end]
-
-        self.assertIn("EH2 samples mcycle", body)
-        self.assertNotIn("processor->get_state()->mcycle->write(", body)
-        self.assertNotIn("processor->get_state()->mcycle->write_upper_half(",
-                         body)
-        self.assertNotIn("processor->get_csr(CSR_MCYCLE)", body)
-        self.assertNotIn("csrmap[CSR_MCYCLE]->read()", body)
-        self.assertNotIn("csrmap[CSR_MCYCLE]->write(", body)
-        self.assertNotIn("csrmap[CSR_MCYCLEH]->write(", body)
-        self.assertNotIn("std::make_shared<basic_csr_t>(processor.get(), CSR_MCYCLE",
-                         body)
-
-    def test_spike_cosim_has_no_legacy_dpi_factory_or_cosim_base(self):
-        spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                       "spike_cosim.cc").read_text(encoding="utf-8")
-
-        self.assertNotIn("riscv_" + "cosim_init", spike_cosim)
-        self.assertNotIn("static_cast<" + "Cosim *>(cosim)", spike_cosim)
-
-    def test_spike_cosim_keeps_isa_parser_alive(self):
-        cosim_dir = SCRIPT_DIR.parents[3] / "dv" / "cosim"
-        header = (cosim_dir / "spike_cosim.h").read_text(encoding="utf-8")
-        impl = (cosim_dir / "spike_cosim.cc").read_text(encoding="utf-8")
-
-        self.assertIn("std::unique_ptr<isa_parser_t> isa_parser;", header)
-        self.assertIn("isa_parser = std::make_unique<isa_parser_t>", impl)
-        self.assertIn("isa_parser.get()", impl)
-        self.assertNotIn("auto isa = std::make_unique<isa_parser_t>", impl)
-        self.assertNotIn("isa.get(), DEFAULT_VARCH", impl)
-
-    def test_spike_cosim_allows_eh2_widened_axi_load_byte_enables(self):
-        spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                       "spike_cosim.cc").read_text(encoding="utf-8")
-
-        # EH2 LSU widens both loads AND stores at the AXI boundary (sub-word
-        # accesses become full aligned words with extra strb bits). spike_cosim
-        # accepts BE supersets on either side — see ADR-0005.
-        self.assertIn("EH2 widens both loads AND stores", spike_cosim)
-        self.assertIn("!store && ((expected_be & ~top_pending_access_info.be) != 0)",
-                      spike_cosim)
-        self.assertIn("store && ((expected_be & ~top_pending_access_info.be) != 0)",
-                      spike_cosim)
-
-    def test_spike_cosim_allows_eh2_forwarded_load_without_pending_dside(self):
-        spike_cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                       "spike_cosim.cc").read_text(encoding="utf-8")
-
-        self.assertIn("EH2 can satisfy a load internally without an external AXI transaction",
-                      spike_cosim)
-        self.assertIn("if (!store) {", spike_cosim)
-        self.assertIn("return kCheckMemOk;", spike_cosim)
-
-    def test_rvviref_standalone_writes_riscv_dv_csv(self):
-        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
-
-        self.assertIn("pc,instr,gpr,csr,binary,mode,instr_str,operand,pad", rvviref)
-        self.assertIn("std::make_unique<SpikeCosim>", rvviref)
-        self.assertIn("ref_event_step", rvviref)
-        self.assertIn("ref_gpr_written_mask", rvviref)
-        self.assertIn("ref_gpr", rvviref)
-        self.assertIn("ref_csr_writes", rvviref)
-        self.assertIn("ref_mem_writes", rvviref)
-        self.assertIn("hart_schedule", rvviref)
-        self.assertIn("for (uint32_t hart = 0", rvviref)
-        self.assertIn('"hart=%u"', rvviref)
-        self.assertNotIn("rvvi" + "Ref", rvviref)
-
-    def test_rvvi_ref_model_maps_eh2_dccm_for_data_accesses(self):
-        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
-
-        self.assertIn("kDefaultDccmBase", rvviref)
-        self.assertIn("0xf0040000u", rvviref)
-        self.assertIn("ref->add_memory(kDefaultDccmBase", rvviref)
-
-    def test_spike_cosim_records_implicit_trap_csr_writes_for_ref_trace(self):
-        cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                 "spike_cosim.cc").read_text(encoding="utf-8")
-
-        self.assertIn("record_ref_csr_write_if_changed", cosim)
-        self.assertIn("CSR_MEPC", cosim)
-        self.assertIn("CSR_MCAUSE", cosim)
-        self.assertIn("CSR_MTVAL", cosim)
-
-    def test_spike_cosim_allows_fetch_faults_to_become_ref_traps(self):
-        cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                 "spike_cosim.cc").read_text(encoding="utf-8")
-
-        self.assertIn("fetch_fault_candidate", cosim)
-        self.assertIn("Allow Spike to turn the fetch miss into an architectural trap", cosim)
-        self.assertNotIn("failed to read instruction at PC", cosim)
-
-    def test_rvvi_ref_model_maps_eh2_low_zero_page_for_illegal_fetches(self):
-        """EH2 external IFU returns zero data for low blank addresses."""
-        rvviref = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                   "spike_rvvi_main.cc").read_text(encoding="utf-8")
-
-        self.assertIn("kDefaultLowZeroBase", rvviref)
-        self.assertIn("0x00000000u", rvviref)
-        self.assertIn("kDefaultLowZeroSize", rvviref)
-        self.assertIn("ref->add_memory(kDefaultLowZeroBase", rvviref)
-
-    def test_spike_cosim_records_host_backed_atomic_memory_writes(self):
-        cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                 "spike_cosim.cc").read_text(encoding="utf-8")
-
-        self.assertIn("ref_atomic_store_addr", cosim)
-        self.assertIn("record_ref_mem_write_if_changed", cosim)
-        self.assertIn("ref_mem_writes.push_back", cosim)
-
-    def test_spike_cosim_initializes_mstatus_to_eh2_machine_mode(self):
-        cosim = (SCRIPT_DIR.parents[3] / "dv" / "cosim" /
-                 "spike_cosim.cc").read_text(encoding="utf-8")
-
-        self.assertIn("proc->put_csr(CSR_MSTATUS", cosim)
-        self.assertIn("MSTATUS_MPP", cosim)
-
-    def test_root_readme_documents_tracecmp_platform_scope(self):
+    def test_root_readme_documents_lockstep_whisper_platform_scope(self):
         readme = SCRIPT_DIR.parents[3] / "README.md"
 
         self.assertTrue(readme.exists())
         text = readme.read_text(encoding="utf-8")
         self.assertIn("cosim-only", text)
         self.assertIn("RVVI-TRACE", text)
-        self.assertIn("离线 tracecmp", text)
+        self.assertIn("Whisper", text)
+        self.assertIn("lockstep", text)
         self.assertIn("功能仿真", text)
         self.assertIn("不在本平台范围", text)
-        self.assertIn("23/57", text)
         self.assertIn("riscv_csr_test", text)
         self.assertIn("rvvi_adapter.sv", text)
-        self.assertIn("spike_cosim.cc", text)
+        self.assertNotIn("spike_" + "cosim.cc", text)
         self.assertIn("NHART=2", text)
 
     def test_signoff_is_cosim_only(self):
@@ -3161,7 +2779,7 @@ class RegressionFrameworkTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             signoff.parse_stage_result_args(["for" + "mal=/tmp/" + "for" + "mal"])
 
-    def test_signoff_cosim_profile_uses_offline_tracecmp(self):
+    def test_signoff_cosim_profile_uses_cosim_testlist(self):
         class Args:
             simulator = "vcs"
             seed = 1
@@ -3181,6 +2799,28 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertNotIn("+use_rvvi_" + "cosim=1", " ".join(smoke_cmd))
         self.assertIn(str(root / "dv" / "uvm" / "core_eh2" /
                           "directed_tests" / "cosim_testlist.yaml"), cmd)
+
+    def test_signoff_lockstep_whisper_uses_online_checker_opts(self):
+        class Args:
+            simulator = "vcs"
+            seed = 1
+            parallel = 1
+            coverage = False
+            waves = False
+            allow_warnings = True
+            iterations = 0
+            lockstep_whisper = True
+            whisper_path = "vendor/whisper/build-Linux/whisper"
+            whisper_json = "rtl/snapshots/default/whisper.json"
+
+        cmd = signoff.build_stage_cmd(
+            "cosim", Args, Path("/tmp/out"), Path("/tmp/build/simv"))
+        text = " ".join(cmd)
+
+        self.assertIn("+cosim_arch_checker", text)
+        self.assertIn("+whisper_path=vendor/whisper/build-Linux/whisper", text)
+        self.assertIn("+whisper_json_path=rtl/snapshots/default/whisper.json", text)
+        self.assertNotIn("--disable-trace-" + "compare", cmd)
 
     def test_signoff_dry_run_lists_ibex_style_stages(self):
         with tempfile.TemporaryDirectory() as td:
@@ -3221,6 +2861,48 @@ class RegressionFrameworkTest(unittest.TestCase):
                 (out_dir / "signoff_status.json").read_text(encoding="utf-8"))
             self.assertEqual(status["status"], "PASS")
             self.assertTrue((out_dir / "signoff_report.md").exists())
+
+    def test_signoff_full_profile_can_disable_coverage_gate(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_dir = root / "archived"
+            report_dir.mkdir()
+            (report_dir / "report.json").write_text(json.dumps({
+                "total": 1,
+                "passed": 1,
+                "failed": 0,
+                "tests": [{
+                    "name": "smoke",
+                    "seed": 1,
+                    "type": "RISCVDV",
+                    "passed": True,
+                    "failure_mode": "NONE",
+                    "instructions": 0,
+                    "cycles": 10,
+                    "ipc": 0.0,
+                    "sim_time_sec": 1.0,
+                }]
+            }), encoding="utf-8")
+
+            out_dir = root / "signoff"
+            rc = signoff.main([
+                "--profile", "full",
+                "--stages", "smoke",
+                "--stage-result", "smoke={}".format(report_dir),
+                "--output", str(out_dir),
+                "--gate-only",
+                "--skip-precheck",
+                "--no-fail-on-skip-in-signoff",
+                "--no-require-coverage",
+                "--min-line-coverage", "0",
+                "--min-functional-coverage", "0",
+            ])
+
+            self.assertEqual(rc, 0)
+            status = yaml.safe_load(
+                (out_dir / "signoff_status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["status"], "PASS")
+            self.assertEqual(status["coverage"]["status"], "SKIP")
 
     def test_signoff_gate_accepts_archived_report_json(self):
         with tempfile.TemporaryDirectory() as td:

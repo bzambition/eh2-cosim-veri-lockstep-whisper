@@ -554,9 +554,31 @@ module eh2_rvvi_adapter #(
   endtask
 
   task automatic capture_store_write();
+    rvvi_mem_access_t access;
+    longint unsigned packed_data;
+    longint unsigned packed_mask;
     if (lsu_bus_write && lsu_bus_wmask != 4'b0) begin
       $fwrite(dump_fd, "M|%0d|%08h:%08h:%0h\n",
               lsu_bus_tid, lsu_bus_addr, lsu_bus_wdata, lsu_bus_wmask);
+      access.fetch = 1'b0;
+      access.size = 0;
+      for (int i = 0; i < 4; i++) begin
+        if (lsu_bus_wmask[i]) begin
+          access.size++;
+        end
+      end
+      access.vaddr = lsu_bus_addr;
+      access.paddr = lsu_bus_addr;
+      access.gaddr = '0;
+      access.pte = '0;
+      access.gpte = '0;
+      access.page_type = '0;
+      access.guest_page_type = '0;
+      rvvi.mem_access_push(lsu_bus_tid, access);
+      packed_data = {lsu_bus_addr, lsu_bus_wdata};
+      packed_mask = lsu_bus_wmask;
+      rvvi.net_push("store_data", packed_data);
+      rvvi.net_push("store_mask", packed_mask);
     end
   endtask
 

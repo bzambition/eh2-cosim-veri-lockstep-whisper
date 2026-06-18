@@ -202,6 +202,7 @@ module core_eh2_tb_top;
     ifu_bus_clk_en     = 1;
     dbg_bus_clk_en     = 1;
     dma_bus_clk_en     = 1;
+    void'($value$plusargs("reset_vector=%h", reset_vector));
   end
 
   //--------------------------------------------------------------------------
@@ -1085,6 +1086,16 @@ module core_eh2_tb_top;
     .lsu_bus_addr    (lsu_trace_store_addr),
     .lsu_bus_wdata   (lsu_trace_store_wdata),
     .lsu_bus_wmask   (lsu_trace_store_wmask)
+  );
+
+  rvvi_cac_bridge #(
+    .NHART  (`RVVI_NHART),
+    .RETIRE (2),
+    .XLEN   (32)
+  ) u_rvvi_cac_bridge (
+    .clk   (core_clk),
+    .rst_l (rst_l),
+    .rvvi  (rvvi)
   );
 
   //--------------------------------------------------------------------------

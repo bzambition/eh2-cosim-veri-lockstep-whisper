@@ -30,7 +30,6 @@ SNAPSHOTS    := $(if $(IS_DUAL_THREAD_CONFIG),rtl/snapshots/default_mt,rtl/snaps
 RVVI_NHART := $(if $(IS_DUAL_THREAD_CONFIG),2,1)
 TB_DIR       := dv/uvm/core_eh2
 SHARED_DIR   := shared/rtl
-COSIM_DIR    := dv/cosim
 SCRIPTS_DIR  := $(TB_DIR)/scripts
 DV_EXT_DIR   := $(TB_DIR)/riscv_dv_extension
 RISCV_DV_DIR := vendor/google_riscv-dv
@@ -48,7 +47,7 @@ SHARED_F     := $(TB_DIR)/eh2_shared.f
 TB_F         := $(TB_DIR)/eh2_tb.f
 
 # clean 默认保留清单（删了要重跑数小时 / 签发证据）
-CLEAN_PRESERVE_BUILD := r3b_final r4a_final nightly libcosim.so spike_objs compliance_tb_compile.log
+CLEAN_PRESERVE_BUILD := r3b_final r4a_final nightly compliance_tb_compile.log
 CLEAN_PRESERVE_FIND  := $(foreach n,$(CLEAN_PRESERVE_BUILD),! -name '$(n)') ! -name 'archive_signoffs_*'
 
 # ============================================================
@@ -67,6 +66,7 @@ ITERATIONS      ?=
 PARALLEL        ?= 4
 OUT             ?=
 SIM_OPTS        ?=
+LOCKSTEP_WHISPER ?= 1
 
 # sign-off
 PROFILE         ?= full
@@ -129,7 +129,7 @@ TESTLIST_PATH := $(if $(filter directed,$(TESTLIST)),$(TB_DIR)/directed_tests/di
 # ============================================================
 # .PHONY
 # ============================================================
-.PHONY: help asm spike cosim rvviref compile compile_vcs compile_nc \
+.PHONY: help asm whisper cac compile compile_vcs compile_nc \
         smoke regress compliance watch_wave signoff clean
 
 # ============================================================
@@ -150,9 +150,8 @@ EH2 Cosim 验证平台 — Makefile 入口（cosim-only 精简版）
 
 [ 构建 ]
   make asm                编译 tests/asm/*.S → hex/elf/dis
-  make spike              在 vendor/spike 内构建并安装 Spike
-  make cosim              编译 Spike RVVI-API DPI libcosim.so（默认链接 vendor/spike/install）
-  make rvviref            独立运行 EH2-Spike ref，输出 build/rvviref/rvvi_ref_trace.csv
+  make whisper            在 vendor/whisper 内构建 VeeR-ISS server
+  make cac                编译 cosim-arch-checker / Whisper DPI 库
   make compile            编译 UVM testbench（SIMULATOR=vcs→simv / nc→INCA_libs）；COV=0|1  WAVES=0|1
 
 [ 看波形 / 清理 ]
@@ -178,20 +177,28 @@ $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
 # ============================================================
-# cosim — 编译 Spike DPI libcosim.so
+# lockstep — 编译 CAC / Whisper DPI
 # ============================================================
-LIBCOSIM := $(BUILD_DIR)/libcosim.so
+CAC_DIR := vendor/cosim-arch-checker
+LIBCAC_COSIM := $(CAC_DIR)/lib/libcosim.so
+CAC_CXX ?= g++
+CAC_NUM_HARTS ?= $(RVVI_NHART)
+CAC_CXXFLAGS ?= -std=c++17 -Wall -Werror -fpic -Imon/mon_instr -Ibridge/std -Ibridge -Ienv -Ibridge/whisper/svdpi -Ibridge/whisper -Icac/src/lib -Icac/src -DCONFIG=MediumBoomVecConfig -DCAC_NUM_HARTS=$(CAC_NUM_HARTS)
+CAC_LD_LIBRARY_PATH ?= $(dir $(CAC_CXX))../lib64:$(dir $(CAC_CXX))../lib
+WHISPER_LD_LIBRARY_PATH ?=
+LOCKSTEP_LD_LIBRARY_PATH := $(CURDIR)/$(CAC_DIR)/lib:$(CAC_LD_LIBRARY_PATH)$(if $(WHISPER_LD_LIBRARY_PATH),:$(WHISPER_LD_LIBRARY_PATH),)
+WHISPER_PATH ?= vendor/whisper/build-Linux/whisper
+LOCKSTEP_WHISPER_JSON ?= $(if $(IS_DUAL_THREAD_CONFIG),config/whisper_default_mt_lockstep.json,config/whisper_default_lockstep.json)
+WHISPER_JSON ?= $(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_WHISPER_JSON),$(SNAPSHOTS)/whisper.json)
+CAC_CSR_MASK_FILE ?= config/cac_csr_masks.txt
+LOCKSTEP_CSR_MASK_FILE := $(CURDIR)/$(CAC_CSR_MASK_FILE)
+LOCKSTEP_SIM_OPTS := +cosim_arch_checker +whisper_path=$(WHISPER_PATH) +whisper_json_path=$(WHISPER_JSON)
 
-# 机器相关路径，全部在 env.mk 设（tracked 文件零绝对路径）。
-# SPIKE_CXX 必须是 C++17 编译器（系统 gcc 4.8.5 不行 → 用 devtoolset 的 g++ 等）。
-SPIKE_DIR      ?= $(CURDIR)/vendor/spike
-SPIKE_INSTALL  ?= $(SPIKE_DIR)/install
-SPIKE_CXX      ?= g++
-SPIKE_CXXFLAGS ?= -std=c++17 -static-libstdc++
-SPIKE_BUILD    ?= $(BUILD_DIR)/spike_objs
 RISCV_PREFIX   ?= riscv32-unknown-elf-
 RISCV_TESTS_FW ?= $(CURDIR)/vendor/riscv-tests
 RISCV_COMPLIANCE_FW ?= $(RISCV_TESTS_FW)
+WHISPER_CXX ?=
+WHISPER_BOOST_ROOT ?=
 
 # svdpi.h 来源：优先 NC，其次 VCS；可用 SVDPI_INCLUDE=<dir> 覆盖
 NC_INSTALL    ?=
@@ -200,86 +207,17 @@ SVDPI_INCLUDE ?= $(firstword \
   $(wildcard $(VCS_HOME)/include/svdpi.h))
 SVDPI_INCLUDE_DIR := $(dir $(SVDPI_INCLUDE))
 
-spike:
-	@echo "=== [spike] 库内构建 Spike (CXX=$(SPIKE_CXX)) ==="
-	@if [ ! -d "$(SPIKE_DIR)" ]; then \
-	  echo "ERROR: SPIKE_DIR=$(SPIKE_DIR) 不存在。请确认 vendor/spike 已拷入。"; exit 1; fi
-	@cd $(SPIKE_DIR) && mkdir -p build && cd build && \
-	  ../configure --prefix=$(SPIKE_DIR)/install --enable-commitlog --enable-misaligned CXX=$(SPIKE_CXX) CXXFLAGS="-std=c++17" && \
-	  $(MAKE) -j4 && $(MAKE) install
-	@tmp_softfloat=$$(mktemp) && \
-	  cp $(SPIKE_DIR)/build/libsoftfloat.a $$tmp_softfloat && \
-	  rm -rf $(SPIKE_DIR)/build && mkdir -p $(SPIKE_DIR)/build && \
-	  mv $$tmp_softfloat $(SPIKE_DIR)/build/libsoftfloat.a
-	@echo "=== [spike] 完成: $(SPIKE_INSTALL)/lib ==="
+whisper:
+	@echo "=== [whisper] build vendor/whisper (chipsalliance/VeeR-ISS HEAD) ==="
+	@test -n "$(WHISPER_CXX)" || { echo "ERROR: 在 env.mk 设 WHISPER_CXX（devtoolset-9 g++）"; exit 1; }
+	@test -n "$(WHISPER_BOOST_ROOT)" || { echo "ERROR: 在 env.mk 设 WHISPER_BOOST_ROOT"; exit 1; }
+	@cd vendor/whisper && $(MAKE) -f GNUmakefile CXX=$(WHISPER_CXX) \
+	  BOOST_ROOT=$(WHISPER_BOOST_ROOT) STATIC_LINK=0 -j4 build-Linux/whisper
+	@test -x vendor/whisper/build-Linux/whisper && echo "=== [whisper] done: $(WHISPER_PATH) ==="
 
-cosim: $(LIBCOSIM)
-
-$(LIBCOSIM): $(COSIM_DIR)/spike_cosim.cc \
-             $(COSIM_DIR)/spike_cosim.h | $(BUILD_DIR)
-	@if [ -z "$(SPIKE_DIR)" ] || [ ! -d "$(SPIKE_INSTALL)" ]; then \
-	  echo "ERROR: SPIKE_INSTALL=$(SPIKE_INSTALL) 不存在。请先运行 make spike。"; exit 1; fi
-	@if [ -z "$(SVDPI_INCLUDE)" ]; then \
-	  echo "ERROR: 找不到 svdpi.h。请在 env.mk 设 NC_INSTALL 或 VCS_HOME，或显式 SVDPI_INCLUDE=<dir>。"; exit 1; fi
-	@echo "=== [cosim] 构建 libcosim.so (svdpi from: $(SVDPI_INCLUDE_DIR)) ==="
-	@mkdir -p $(SPIKE_BUILD)
-	@cd $(SPIKE_BUILD) && \
-	  ar x $(SPIKE_INSTALL)/lib/libriscv.a && \
-	  rm -f libfdt.a libsoftfloat.a && \
-	  ar x $(SPIKE_INSTALL)/lib/libdisasm.a && \
-	  ar x $(SPIKE_INSTALL)/lib/libfesvr.a && \
-	  ar x $(SPIKE_INSTALL)/lib/libfdt.a && \
-	  ar rcs libspike_all.a *.o
-	$(SPIKE_CXX) -shared -fPIC -O2 -g \
-	  -I$(COSIM_DIR) -I$(SPIKE_INSTALL)/include -I$(SPIKE_INSTALL)/include/softfloat \
-	  -Ivendor/rvvi/include/host/rvvi \
-	  -I$(SVDPI_INCLUDE_DIR) $(SPIKE_CXXFLAGS) \
-	  -o $(LIBCOSIM) \
-	  $(COSIM_DIR)/spike_cosim.cc \
-	  -L$(SPIKE_BUILD) -lspike_all \
-	  $(SPIKE_DIR)/build/libsoftfloat.a \
-	  -lpthread -ldl
-	@echo "=== [cosim] 完成 ==="
-
-RVVIREF_BUILD := $(BUILD_DIR)/rvviref
-RVVIREF_EXE   := $(RVVIREF_BUILD)/spike_rvvi_main
-BINARY        ?= $(ASM_DIR)/smoke.elf
-RVVIREF_STEPS ?= 6
-RVVIREF_LOG   ?= $(RVVIREF_BUILD)/rvvi_ref_trace.csv
-
-rvviref: asm $(RVVIREF_EXE)
-	@if [ ! -f "$(BINARY)" ]; then \
-	  echo "ERROR: BINARY=$(BINARY) 不存在。请先运行 make asm 或指定 BINARY=<elf>。"; exit 1; fi
-	@mkdir -p $(RVVIREF_BUILD)
-	@echo "=== [rvviref] 运行 Spike RVVI ref: $(BINARY) ==="
-	$(RVVIREF_EXE) "$(BINARY)" "$(RVVIREF_LOG)" "$(RVVIREF_STEPS)"
-	@echo "=== [rvviref] trace: $(RVVIREF_LOG) ==="
-
-$(SPIKE_INSTALL)/lib/libriscv.a:
-	@$(MAKE) --no-print-directory spike
-
-$(RVVIREF_EXE): $(COSIM_DIR)/spike_rvvi_main.cc \
-                $(COSIM_DIR)/spike_cosim.cc \
-                $(COSIM_DIR)/spike_cosim.h $(SPIKE_INSTALL)/lib/libriscv.a | $(BUILD_DIR)
-	@if [ -z "$(SPIKE_DIR)" ] || [ ! -d "$(SPIKE_INSTALL)" ]; then \
-	  echo "ERROR: SPIKE_INSTALL=$(SPIKE_INSTALL) 不存在。请先运行 make spike。"; exit 1; fi
-	@mkdir -p $(RVVIREF_BUILD) $(SPIKE_BUILD)
-	@cd $(SPIKE_BUILD) && \
-	  ar x $(SPIKE_INSTALL)/lib/libriscv.a && \
-	  rm -f libfdt.a libsoftfloat.a && \
-	  ar x $(SPIKE_INSTALL)/lib/libdisasm.a && \
-	  ar x $(SPIKE_INSTALL)/lib/libfesvr.a && \
-	  ar x $(SPIKE_INSTALL)/lib/libfdt.a && \
-	  ar rcs libspike_all.a *.o
-	$(SPIKE_CXX) -O2 -g \
-	  -I$(COSIM_DIR) -Ivendor/rvvi/include/host/rvvi \
-	  -I$(SPIKE_INSTALL)/include -I$(SPIKE_INSTALL)/include/softfloat \
-	  $(SPIKE_CXXFLAGS) \
-	  -o $(RVVIREF_EXE) \
-	  $(COSIM_DIR)/spike_rvvi_main.cc $(COSIM_DIR)/spike_cosim.cc \
-	  -L$(SPIKE_BUILD) -lspike_all \
-	  $(SPIKE_DIR)/build/libsoftfloat.a \
-	  -lpthread -ldl
+cac:
+	@echo "=== [cac] 构建 cosim-arch-checker DPI (CXX=$(CAC_CXX)) ==="
+	$(MAKE) -C $(CAC_DIR) all CC=$(CAC_CXX) CFLAGS='$(CAC_CXXFLAGS)'
 
 # ============================================================
 # asm — 编译 tests/asm/*.S → hex/elf/dis
@@ -294,7 +232,7 @@ asm:
 # ============================================================
 compile: compile_$(SIMULATOR)
 
-compile_vcs: $(LIBCOSIM) | $(BUILD_DIR)
+compile_vcs: cac | $(BUILD_DIR)
 	@echo "=== [compile] VCS UVM testbench (BUILD_SUBDIR=$(BUILD_SUBDIR)) ==="
 	@mkdir -p $(BUILD_SUBDIR)
 	$(VCS) -full64 -assert svaext -sverilog \
@@ -308,17 +246,16 @@ compile_vcs: $(LIBCOSIM) | $(BUILD_DIR)
 	  +incdir+$(TB_DIR)/common/trace_agent \
 	  +incdir+$(TB_DIR)/common/irq_agent \
 	  +incdir+$(TB_DIR)/common/jtag_agent \
-	  +incdir+$(COSIM_DIR) \
 	  -f $(RTL_F) -f $(SHARED_F) -f $(TB_F) \
 	  -top core_eh2_tb_top \
-	  $(CURDIR)/$(LIBCOSIM) \
+	  $(CURDIR)/$(LIBCAC_COSIM) \
 	  -Mdir=$(BUILD_SUBDIR)/csrc -o $(BUILD_SUBDIR)/simv \
 	  -l $(BUILD_SUBDIR)/compile.log \
 	  -timescale=1ns/1ps -debug_access+all -kdb \
 	  $(if $(filter 1,$(COV)),$(VCS_COMPILE_COV_OPTS),)
 	@echo "=== [compile] simv 完成: $(BUILD_SUBDIR)/simv ==="
 
-compile_nc: $(LIBCOSIM) | $(BUILD_DIR)
+compile_nc: cac | $(BUILD_DIR)
 	@echo "=== [compile] NC (irun) UVM testbench (BUILD_SUBDIR=$(BUILD_SUBDIR)) ==="
 	@mkdir -p $(BUILD_SUBDIR)
 	$(IRUN) -64bit -uvmhome $(NC_UVM_HOME) -sv -assert \
@@ -331,12 +268,11 @@ compile_nc: $(LIBCOSIM) | $(BUILD_DIR)
 	  +incdir+$(TB_DIR)/common/trace_agent \
 	  +incdir+$(TB_DIR)/common/irq_agent \
 	  +incdir+$(TB_DIR)/common/jtag_agent \
-	  +incdir+$(COSIM_DIR) \
 	  -f $(RTL_F) -f $(SHARED_F) -f $(TB_F) \
 	  -top core_eh2_tb_top -elaborate \
 	  -nclibdirname $(BUILD_SUBDIR)/INCA_libs \
 	  -access +rwc -timescale 1ns/1ps -errormax 500 \
-	  -sv_lib $(CURDIR)/$(LIBCOSIM) \
+	  -sv_lib $(CURDIR)/$(LIBCAC_COSIM) \
 	  -l $(BUILD_SUBDIR)/compile.log \
 	  $(if $(filter 1,$(COV)),$(NC_COMPILE_COV_OPTS),)
 	@echo "=== [compile] NC 完成: $(BUILD_SUBDIR)/INCA_libs ==="
@@ -347,11 +283,11 @@ compile_nc: $(LIBCOSIM) | $(BUILD_DIR)
 smoke: asm
 	@$(MAKE) --no-print-directory compile BUILD_SUBDIR=$(BUILD_DIR)/smoke_$(SIMULATOR)
 	@echo "=== [smoke] 运行 smoke 测试 ==="
-	python3 $(SCRIPTS_DIR)/run_regress.py \
+	CAC_CSR_MASK_FILE=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_CSR_MASK_FILE),) LD_LIBRARY_PATH=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_LD_LIBRARY_PATH):,)$$LD_LIBRARY_PATH python3 $(SCRIPTS_DIR)/run_regress.py \
 	  --test smoke --binary $(ASM_DIR)/smoke.hex \
 	  --simulator $(SIMULATOR) --seed 1 \
 	  --rtl-test core_eh2_base_test \
-	  --sim-opts "$(SIM_OPTS) +rvvi_elf=$(ASM_DIR)/smoke.elf +rvvi_trace_file=$(BUILD_DIR)/smoke_$(SIMULATOR)/smoke_s1/rvvi_trace.log" \
+	  --sim-opts "$(SIM_OPTS) $(LOCKSTEP_SIM_OPTS) +rvvi_elf=$(ASM_DIR)/smoke.elf +whisper_server_file=$(BUILD_DIR)/smoke_$(SIMULATOR)/smoke_s1/whisper_connect" \
 	  --build-dir $(BUILD_DIR)/smoke_$(SIMULATOR) \
 	  --output $(BUILD_DIR)/smoke_$(SIMULATOR) \
 	  $(if $(filter 1,$(COV)),--coverage,) \
@@ -361,11 +297,11 @@ smoke: asm
 regress:
 	@$(MAKE) --no-print-directory compile BUILD_SUBDIR=$(BUILD_DIR)/regress_$(SIMULATOR)
 	@echo "=== [regress] testlist=$(TESTLIST) parallel=$(PARALLEL) iter=$(if $(ITERATIONS),$(ITERATIONS),testlist) ==="
-	python3 $(SCRIPTS_DIR)/run_regress.py \
+	CAC_CSR_MASK_FILE=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_CSR_MASK_FILE),) LD_LIBRARY_PATH=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_LD_LIBRARY_PATH):,)$$LD_LIBRARY_PATH python3 $(SCRIPTS_DIR)/run_regress.py \
 	  $(if $(TEST),--test $(TEST) --testlist $(TESTLIST_PATH),--testlist $(TESTLIST_PATH)) \
 	  --simulator $(SIMULATOR) --seed $(SEED) \
 	  $(if $(ITERATIONS),--iterations $(ITERATIONS),) --parallel $(PARALLEL) \
-	  --sim-opts "$(SIM_OPTS)" \
+	  --sim-opts "$(SIM_OPTS) $(LOCKSTEP_SIM_OPTS)" \
 	  --build-dir $(BUILD_DIR)/regress_$(SIMULATOR) \
 	  --output $(if $(OUT),$(OUT),$(BUILD_DIR)/regress_$(SIMULATOR)) \
 	  $(if $(filter riscvdv,$(TESTLIST)),$(if $(TEST),,--min-passed 50),) \
@@ -395,7 +331,7 @@ compliance:
 #   TEST 必填（读 tests/asm/<TEST>.hex）
 # ============================================================
 ifeq ($(MODE),live)
-watch_wave: asm cosim
+watch_wave: asm cac
 	@if [ -z "$(TEST)" ]; then echo "ERROR: 必须指定 TEST=<name>，例：make watch_wave TEST=smoke MODE=live"; exit 1; fi
 	@echo "=== [watch_wave] 形式③ NC 边仿真边看 TEST=$(TEST)（需 X11 forwarding）==="
 	@mkdir -p $(BUILD_DIR)/watch_$(TEST)_nc/$(TEST)_s1
@@ -405,11 +341,10 @@ watch_wave: asm cosim
 	  $(DEFINES) +incdir+$(SNAPSHOTS) $(SNAPSHOTS)/eh2_pdef.vh \
 	  +incdir+$(TB_DIR)/common/axi4_agent +incdir+$(TB_DIR)/common/trace_agent \
 	  +incdir+$(TB_DIR)/common/irq_agent +incdir+$(TB_DIR)/common/jtag_agent \
-	  +incdir+$(COSIM_DIR) \
 	  -f $(RTL_F) -f $(SHARED_F) -f $(TB_F) -top core_eh2_tb_top \
 	  -nclibdirname $(BUILD_DIR)/watch_$(TEST)_nc/INCA_libs \
 	  -access +rwc -timescale 1ns/1ps -errormax 500 \
-	  -sv_lib $(CURDIR)/$(LIBCOSIM) \
+	  -sv_lib $(CURDIR)/$(LIBCAC_COSIM) \
 	  +UVM_TESTNAME=core_eh2_base_test +bin=$(ASM_DIR)/$(TEST).hex \
 	  +seed=1 +timeout_ns=$(TIMEOUT_NS) \
 	  +rvvi_elf=$(ASM_DIR)/$(TEST).elf \
@@ -445,13 +380,14 @@ signoff:
 	@$(if $(filter 1,$(GATE_ONLY)),,$(MAKE) --no-print-directory asm)
 	@$(if $(filter 1,$(GATE_ONLY)),,$(MAKE) --no-print-directory compile BUILD_SUBDIR=$(SIGNOFF_OUT) COV=$(COV))
 	@echo "=== [signoff] profile=$(PROFILE) gate_only=$(GATE_ONLY) out=$(SIGNOFF_OUT) ==="
-	python3 $(SCRIPTS_DIR)/signoff.py \
+	CAC_CSR_MASK_FILE=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_CSR_MASK_FILE),) LD_LIBRARY_PATH=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_LD_LIBRARY_PATH):,)$$LD_LIBRARY_PATH python3 $(SCRIPTS_DIR)/signoff.py \
 	  --profile $(PROFILE) --simulator $(SIMULATOR) \
 	  --seed $(SEED) --parallel $(PARALLEL) --output $(SIGNOFF_OUT) \
 	  $(if $(filter 1,$(GATE_ONLY)),--gate-only,) \
 	  $(if $(SIGNOFF_ITERATIONS),--iterations $(SIGNOFF_ITERATIONS),) \
 	  $(if $(filter 1,$(COV)),--coverage --min-line-coverage $(SIGNOFF_MIN_LINE_COV) --min-functional-coverage $(SIGNOFF_MIN_FUNCTIONAL_COV),) \
 	  $(if $(filter 1,$(SIGNOFF_ALLOW_WARNINGS)),--allow-warnings,) \
+	  $(if $(filter 1,$(LOCKSTEP_WHISPER)),--lockstep-whisper --whisper-path $(WHISPER_PATH) --whisper-json $(WHISPER_JSON),) \
 	  $(if $(filter 1,$(WAVES)),--waves,) \
 	  $(SIGNOFF_OPTS)
 	@$(if $(filter 1,$(CLEANUP)),bash scripts/clean_workspace.sh --lck-only 2>/dev/null || true,)

@@ -1,0 +1,29 @@
+--- HartConfig.cpp
++++ HartConfig.cpp
+@@ -1817,10 +1817,26 @@
+                       }
+                   };
+ 
++      // Apply the configured reset value to the PMA state too. Writes and
++      // pokes already do this through post; reset must match them.
++      auto reset = [&system] (Csr<URV>& csr) -> void {
++                     URV val = csr.read();
++                     for (unsigned hix = 0; hix < system.hartCount(); ++hix)
++                       {
++                         auto ht = system.ithHart(hix);
++                         for (unsigned region = 0; region < 16; ++region)
++                           {
++                             unsigned bit = (val >> (region*2 + 1)) & 1;
++                             ht->markRegionIdempotent(region, bit == 0);
++                           }
++                       }
++                   };
++
+       csrPtr->registerPrePoke(pre);
+       csrPtr->registerPreWrite(pre);
+       csrPtr->registerPostPoke(post);
+       csrPtr->registerPostWrite(post);
++      csrPtr->registerPostReset(reset);
+     }
+ 
+   if (count and sizeof(URV) == 8)

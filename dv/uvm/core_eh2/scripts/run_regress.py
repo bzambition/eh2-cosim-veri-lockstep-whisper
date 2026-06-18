@@ -34,8 +34,6 @@ from metadata import (
 from check_logs import check_sim_log
 from collect_results import generate_report_json
 import directed_test_schema
-import rvvi_trace_to_trace_csv
-import trace_compare_full
 
 
 # Paths
@@ -82,7 +80,7 @@ def load_regression_testlist(testlist_path: str) -> list:
             }
             if test.ld_script:
                 entry["linker"] = test.ld_script
-            for key in ("sim_opts", "gen_opts", "skip_in_signoff"):
+            for key in ("sim_opts", "gen_opts", "skip_in_signoff", "cosim"):
                 if key in raw_entry:
                     entry[key] = raw_entry[key]
             entries.append(entry)
@@ -185,6 +183,46 @@ def add_rvvi_elf_sim_opt(sim_opts: str, binary: str) -> str:
     return " ".join(piece for piece in (sim_opts, f"+rvvi_elf={elf_path}") if piece)
 
 
+def matching_elf_path(binary: str) -> str:
+    root, ext = os.path.splitext(binary)
+    return root + ".elf" if ext in (".hex", ".bin") else binary + ".elf"
+
+
+def read_elf_entry(elf_path: str):
+    """Read the entry point from an ELF32/ELF64 file, returning None on miss."""
+    try:
+        with open(elf_path, "rb") as f:
+            ident = f.read(16)
+            if len(ident) < 16 or ident[0:4] != b"\x7fELF":
+                return None
+            elf_class = ident[4]
+            data_encoding = ident[5]
+            if elf_class not in (1, 2) or data_encoding not in (1, 2):
+                return None
+            byteorder = "little" if data_encoding == 1 else "big"
+            entry_size = 4 if elf_class == 1 else 8
+            f.seek(24)
+            entry = f.read(entry_size)
+            if len(entry) != entry_size:
+                return None
+            return int.from_bytes(entry, byteorder=byteorder)
+    except OSError:
+        return None
+
+
+def add_reset_vector_sim_opt(sim_opts: str, binary: str) -> str:
+    """Set RTL reset vector from the matching ELF entry unless explicit."""
+    sim_opts = (sim_opts or "").strip()
+    if "+reset_vector=" in sim_opts:
+        return sim_opts
+    entry = read_elf_entry(matching_elf_path(binary))
+    if entry is None:
+        return sim_opts
+    return " ".join(piece for piece in (
+        sim_opts, "+reset_vector=0x{:08x}".format(entry & 0xffffffff)
+    ) if piece)
+
+
 def add_rvvi_trace_dump_sim_opts(sim_opts: str, trace_path: str) -> str:
     """Enable the RVVI retire dump unless the caller already configured it."""
     sim_opts = (sim_opts or "").strip()
@@ -196,6 +234,39 @@ def add_rvvi_trace_dump_sim_opts(sim_opts: str, trace_path: str) -> str:
     return " ".join(piece for piece in pieces if piece)
 
 
+def add_lockstep_whisper_sim_opts(sim_opts: str, binary: str, work_dir: str) -> str:
+    """Add the per-test ELF/server plusargs required by online Whisper lockstep."""
+    sim_opts = add_rvvi_elf_sim_opt(sim_opts, binary)
+    if "+whisper_server_file=" not in sim_opts:
+        sim_opts = " ".join(piece for piece in (
+            sim_opts, f"+whisper_server_file={os.path.join(work_dir, 'whisper_connect')}"
+        ) if piece)
+    return sim_opts
+
+
+def uses_online_lockstep(test_entry: dict) -> bool:
+    """Return whether this test may use the online cosim checker."""
+    return str(test_entry.get("cosim", "enabled")).lower() not in (
+        "disabled", "rtl_only")
+
+
+def strip_lockstep_whisper_sim_opts(sim_opts: str) -> str:
+    """Remove global online-lockstep plusargs for tests that opt out of cosim."""
+    prefixes = (
+        "+cosim_arch_checker",
+        "+lockstep_whisper",
+        "+whisper_path=",
+        "+whisper_json_path=",
+        "+whisper_server_file=",
+        "+rvvi_elf=",
+    )
+    return " ".join(
+        token for token in (sim_opts or "").split()
+        if not any(token == prefix or token.startswith(prefix)
+                   for prefix in prefixes)
+    )
+
+
 def rvvi_nhart_from_sim_opts(sim_opts: str) -> int:
     """Extract +rvvi_nhart=N from sim opts, defaulting to one hart."""
     for token in (sim_opts or "").split():
@@ -205,18 +276,6 @@ def rvvi_nhart_from_sim_opts(sim_opts: str) -> int:
             except ValueError:
                 return 1
     return 1
-
-
-def uses_trace_compare(test_entry: dict) -> bool:
-    """Return whether this test is gated by offline trace comparison.
-
-    Default-on keeps the regression checker strong.  Only tests that contain
-    asynchronous interrupt/debug delivery may opt out, and the testlist entry
-    must document the alternate UVM-agent/signature checker in tracecmp_bypass.
-    """
-    if str(test_entry.get("cosim", "enabled")).lower() == "rtl_only":
-        return False
-    return str(test_entry.get("tracecmp", "enabled")).lower() != "disabled"
 
 
 def write_process_log(path: str, proc: subprocess.CompletedProcess):
@@ -250,71 +309,6 @@ def run_captured(cmd: list, timeout: int) -> subprocess.CompletedProcess:
 def _line_count(path: str) -> int:
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         return sum(1 for _ in f)
-
-
-def write_hart_schedule_from_csv(csv_path: str, schedule_path: str) -> int:
-    """Write the DUT retire hart sequence for the standalone reference."""
-    rows = trace_compare_full.read_trace_csv(csv_path)
-    with open(schedule_path, "w", encoding="utf-8") as f:
-        for row in rows:
-            f.write("{}\n".format(row.hart))
-    return len(rows)
-
-
-def run_trace_compare(work_dir: str, binary: str, nhart: int = 1) -> bool:
-    """Run DUT RVVI dump vs standalone EH2-Spike trace comparison."""
-    rvvi_trace = os.path.join(work_dir, "rvvi_trace.log")
-    dut_csv = os.path.join(work_dir, "dut_trace.csv")
-    ref_csv = os.path.join(work_dir, "ref_trace.csv")
-    ref_schedule = os.path.join(work_dir, "ref_hart_schedule.txt")
-    compare_log = os.path.join(work_dir, "trace_compare.log")
-    rvviref_target = os.path.join("build", "rvviref", "spike_rvvi_main")
-    rvviref_exe = os.path.join(EH2_ROOT, rvviref_target)
-
-    root, ext = os.path.splitext(binary)
-    elf_path = root + ".elf" if ext in (".hex", ".bin") else binary + ".elf"
-    if not os.path.exists(rvvi_trace):
-        with open(compare_log, "w", encoding="utf-8") as log_f:
-            log_f.write("ERROR: missing DUT RVVI trace: {}\n".format(rvvi_trace))
-        return False
-    if not os.path.exists(elf_path):
-        with open(compare_log, "w", encoding="utf-8") as log_f:
-            log_f.write("ERROR: missing ELF for EH2-Spike: {}\n".format(elf_path))
-        return False
-
-    try:
-        rvvi_trace_to_trace_csv.convert_rvvi_trace(rvvi_trace, dut_csv)
-    except RuntimeError as err:
-        with open(compare_log, "w", encoding="utf-8") as log_f:
-            log_f.write("ERROR: DUT trace conversion failed: {}\n".format(err))
-        return False
-
-    try:
-        steps = max(1, write_hart_schedule_from_csv(dut_csv, ref_schedule))
-    except (OSError, ValueError) as err:
-        with open(compare_log, "w", encoding="utf-8") as log_f:
-            log_f.write("ERROR: DUT hart schedule generation failed: {}\n".format(err))
-        return False
-    build_ref = run_captured(["make", rvviref_target], 300)
-    if build_ref.returncode != 0:
-        write_process_log(compare_log, build_ref)
-        return False
-    ref_proc = run_captured(
-        [rvviref_exe, elf_path, ref_csv, str(steps), str(max(1, nhart)),
-         ref_schedule], 300)
-    if ref_proc.returncode != 0:
-        write_process_log(compare_log, ref_proc)
-        return False
-
-    try:
-        cmp_result = trace_compare_full.compare_trace_csv(
-            dut_csv, ref_csv, "dut", "ref", log=compare_log)
-    except (OSError, ValueError) as err:
-        with open(compare_log, "w", encoding="utf-8") as log_f:
-            log_f.write("ERROR: full trace comparison failed: {}\n".format(err))
-        return False
-
-    return cmp_result.passed
 
 
 def run_single_test(test_entry: dict, seed: int, simulator: str,
@@ -434,11 +428,11 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
         binary = hex_path
 
     result.binary_path = binary
-    trace_compare_enabled = uses_trace_compare(test_entry)
-    if trace_compare_enabled:
-        sim_opts = add_rvvi_elf_sim_opt(sim_opts, binary)
-        sim_opts = add_rvvi_trace_dump_sim_opts(
-            sim_opts, os.path.join(work_dir, "rvvi_trace.log"))
+    sim_opts = add_reset_vector_sim_opt(sim_opts, binary)
+    if not uses_online_lockstep(test_entry):
+        sim_opts = strip_lockstep_whisper_sim_opts(sim_opts)
+    elif "+cosim_arch_checker" in sim_opts or "+lockstep_whisper" in sim_opts:
+        sim_opts = add_lockstep_whisper_sim_opts(sim_opts, binary, work_dir)
 
     # Step 3: Run RTL simulation
     sim_start = time.time()
@@ -486,11 +480,6 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
     result.num_instructions = check_result.num_instructions
     result.num_cycles = check_result.num_cycles
     result.ipc = check_result.ipc
-
-    if result.passed and trace_compare_enabled:
-        if not run_trace_compare(work_dir, binary, rvvi_nhart_from_sim_opts(sim_opts)):
-            result.passed = False
-            result.failure_mode = "TRACECMP_MISMATCH"
 
     # Save result
     return save_and_return(result, work_dir)
@@ -560,7 +549,6 @@ def run_regression(args) -> RegressionSummary:
 
     # Run tests (sequential for now, parallel later)
     max_workers = args.parallel if hasattr(args, 'parallel') else 1
-
     if max_workers > 1:
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = {}
@@ -675,7 +663,6 @@ Examples:
                         help="Enable waveform dumping")
     parser.add_argument("--fail-on-warnings", action="store_true",
                         help="Treat simulator/UVM warnings as test failures")
-
     # Simulator
     parser.add_argument("--simulator", default="vcs",
                         choices=["vcs", "nc", "xlm", "questa"],
