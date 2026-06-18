@@ -78,6 +78,28 @@ static void dut_facade_reports_gpr_mismatch()
   assert(std::strstr(rvviErrorGet(), "GPR") != nullptr);
 }
 
+static void ref_only_gpr_write_waits_for_dut_async_writeback()
+{
+  rvviDutRetire(0, 0x80000002ull, 0x13, RVVI_FALSE);
+  assert(rvviRefPcSet(0, 0x80000002ull) == RVVI_TRUE);
+  rvviRefGprSet(0, 29, 0xdeadbeef);
+
+  assert(rvviRefGprsCompareWritten(0, RVVI_TRUE) == RVVI_TRUE);
+
+  rvviDutRetire(0, 0x80000004ull, 0x13, RVVI_FALSE);
+  assert(rvviRefPcSet(0, 0x80000004ull) == RVVI_TRUE);
+  rvviDutGprSet(0, 29, 0x0);
+  assert(rvviRefGprsCompareWritten(0, RVVI_TRUE) == RVVI_FALSE);
+  assert(std::strstr(rvviErrorGet(), "GPR") != nullptr);
+
+  rvviDutRetire(0, 0x80000006ull, 0x13, RVVI_FALSE);
+  assert(rvviRefPcSet(0, 0x80000006ull) == RVVI_TRUE);
+  rvviRefGprSet(0, 30, 0xcafebabe);
+  assert(rvviRefGprsCompareWritten(0, RVVI_TRUE) == RVVI_TRUE);
+  rvviDutGprSet(0, 30, 0xcafebabe);
+  assert(rvviRefGprsCompareWritten(0, RVVI_TRUE) == RVVI_TRUE);
+}
+
 static void dut_facade_reports_csr_mismatch_unless_masked()
 {
   const char *mask_path = "/tmp/rvvi_csr_mask_test.txt";
@@ -114,12 +136,27 @@ static void dut_facade_reports_memory_mismatch()
   assert(std::strstr(rvviErrorGet(), "MEM") != nullptr);
 }
 
+static void mismatch_error_survives_later_successful_compare()
+{
+  rvviDutRetire(0, 0x80000010ull, 0x13, RVVI_FALSE);
+  assert(rvviRefPcSet(0, 0x80000010ull) == RVVI_TRUE);
+  rvviDutBusWrite(0, 0x80002000ull, 0xaa, 0x1);
+  rvviRefMemoryWrite(0, 0x80002000ull, 0xbb, 1);
+
+  assert(rvviRefCsrsCompare(0) == RVVI_FALSE);
+  assert(std::strstr(rvviErrorGet(), "MEM") != nullptr);
+  assert(rvviRefPcCompare(0) == RVVI_TRUE);
+  assert(std::strstr(rvviErrorGet(), "MEM") != nullptr);
+}
+
 int main()
 {
   version_check_accepts_header_version();
   dut_facade_reports_gpr_mismatch();
+  ref_only_gpr_write_waits_for_dut_async_writeback();
   dut_facade_reports_csr_mismatch_unless_masked();
   dut_facade_reports_memory_mismatch();
+  mismatch_error_survives_later_successful_compare();
   ref_step_reports_state_when_integration_env_is_present();
   return 0;
 }

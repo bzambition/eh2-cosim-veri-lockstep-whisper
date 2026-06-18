@@ -1088,11 +1088,11 @@ module core_eh2_tb_top;
     .lsu_bus_wmask   (lsu_trace_store_wmask)
   );
 
-  rvvi_cac_bridge #(
+  rvvi_scoreboard #(
     .NHART  (`RVVI_NHART),
     .RETIRE (2),
     .XLEN   (32)
-  ) u_rvvi_cac_bridge (
+  ) u_rvvi_scoreboard (
     .clk   (core_clk),
     .rst_l (rst_l),
     .rvvi  (rvvi)

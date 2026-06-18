@@ -65,9 +65,10 @@ dv/uvm/core_eh2/env/eh2_rvfi_if.sv
 // Standard RVVI-TRACE DUT-side stream (MR1)
 +incdir+vendor/rvvi/include/host/rvvi
 vendor/rvvi/source/host/rvvi/rvviTrace.sv
+vendor/rvvi/source/host/rvvi/rvviApiPkg.sv
 +incdir+dv/uvm/core_eh2/common/rvvi_agent
 dv/uvm/core_eh2/common/rvvi_agent/eh2_rvvi_adapter.sv
-dv/uvm/core_eh2/common/rvvi_agent/rvvi_cac_bridge.sv
+dv/uvm/core_eh2/common/rvvi_agent/rvvi_scoreboard.sv
 
 // UVM testbench top
 +incdir+dv/uvm/core_eh2/tb

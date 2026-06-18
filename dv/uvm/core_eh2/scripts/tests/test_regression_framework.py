@@ -248,18 +248,25 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertEqual(
             run_regress.rvvi_nhart_from_sim_opts("+rvvi_nhart=bad"), 1)
 
-    def test_online_scoreboard_is_not_part_of_tb_build(self):
-        scoreboard_path = (
+    def test_generic_rvvi_scoreboard_is_part_of_tb_build(self):
+        old_scoreboard_path = (
             SCRIPT_DIR.parent / "common" / "rvvi_agent" /
             ("eh2_rvvi_" + "scoreboard.sv"))
+        scoreboard_path = (
+            SCRIPT_DIR.parent / "common" / "rvvi_agent" /
+            "rvvi_scoreboard.sv")
         tb_top = (SCRIPT_DIR.parent / "tb" /
                   "core_eh2_tb_top.sv").read_text(encoding="utf-8")
         tb_f = (SCRIPT_DIR.parent / "eh2_tb.f").read_text(encoding="utf-8")
 
-        self.assertFalse(scoreboard_path.exists())
+        self.assertFalse(old_scoreboard_path.exists())
+        self.assertTrue(scoreboard_path.exists())
         self.assertNotIn("eh2_rvvi_" + "scoreboard", tb_top)
         self.assertNotIn("eh2_rvvi_" + "scoreboard", tb_f)
-        self.assertNotIn("rvvi" + "ApiPkg", tb_f)
+        self.assertIn("rvvi_scoreboard #(", tb_top)
+        self.assertIn("u_rvvi_scoreboard", tb_top)
+        self.assertIn("rvvi_scoreboard.sv", tb_f)
+        self.assertIn("rvvi" + "ApiPkg", tb_f)
 
     def test_rvvi_adapter_keeps_async_sideband_capture_for_trace_dump(self):
         tb_top = (SCRIPT_DIR.parent / "tb" /
@@ -286,28 +293,23 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("lsu_bus_write", adapter)
         self.assertIn('$fwrite(dump_fd, "M|%0d|', adapter)
 
-    def test_lockstep_whisper_pokes_interrupt_state_before_step(self):
-        bridge_sv = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
-                     "rvvi_cac_bridge.sv").read_text(encoding="utf-8")
-        bridge_cc = (SCRIPT_DIR.parents[3] / "vendor" /
-                     "cosim-arch-checker" / "bridge" /
-                     "bridge.cc").read_text(encoding="utf-8")
-        bridge_h = (SCRIPT_DIR.parents[3] / "vendor" /
-                    "cosim-arch-checker" / "bridge" /
-                    "bridge.h").read_text(encoding="utf-8")
-        client_h = (SCRIPT_DIR.parents[3] / "vendor" /
-                    "cosim-arch-checker" / "bridge" / "whisper" /
-                    "whisper_client.h").read_text(encoding="utf-8")
+    def test_lockstep_whisper_uses_rvvi_api_scoreboard(self):
+        scoreboard_sv = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
+                         "rvvi_scoreboard.sv").read_text(encoding="utf-8")
+        tb_f = (SCRIPT_DIR.parent / "eh2_tb.f").read_text(encoding="utf-8")
+        rvvi_backend = (SCRIPT_DIR.parents[3] / "vendor" /
+                        "cosim-arch-checker" / "bridge" / "whisper" /
+                        "whisper_rvvi.cpp").read_text(encoding="utf-8")
 
-        self.assertIn("monitor_async", bridge_sv)
-        self.assertIn("rvvi.intr", bridge_sv)
-        self.assertIn("rvvi.debug_mode", bridge_sv)
-        self.assertIn("syncAsyncStateToWhisperPre(hart, dutInstr)", bridge_cc)
-        self.assertIn("whisperPoke(hart, 'c', 0x344", bridge_cc)
-        self.assertNotIn("whisperEnterDebug", bridge_cc)
-        self.assertNotIn("whisperExitDebug", bridge_cc)
-        self.assertNotIn("whisperEnterDebug", client_h)
-        self.assertNotIn("whisperExitDebug", client_h)
+        self.assertIn("import rvviApiPkg::*", scoreboard_sv)
+        self.assertIn("rvviRefInit", scoreboard_sv)
+        self.assertIn("rvviRefEventStep", scoreboard_sv)
+        self.assertIn("rvviRefNetSet", scoreboard_sv)
+        self.assertNotIn("monitor_async", scoreboard_sv)
+        self.assertIn("vendor/rvvi/source/host/rvvi/rvviApiPkg.sv", tb_f)
+        self.assertIn("rvvi_scoreboard.sv", tb_f)
+        self.assertNotIn("rvvi_cac_bridge.sv", tb_f)
+        self.assertIn("whisperPoke(0, 'c', netIndex", rvvi_backend)
 
     def test_testlist_marks_known_non_cosim_tests_disabled(self):
         testlist_path = SCRIPT_DIR.parent / "riscv_dv_extension" / "testlist.yaml"

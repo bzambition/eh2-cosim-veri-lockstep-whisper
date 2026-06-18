@@ -1,6 +1,6 @@
 # Compiler settings
 CC = g++
-CFLAGS = -std=c++17 -Wall -Werror -fpic -Imon/mon_instr -Ibridge/std -Ibridge -Ienv -Ibridge/whisper/svdpi -Ibridge/whisper -I../rvvi/include/host/rvvi -Icac/src/lib -Icac/src
+CFLAGS = -std=c++17 -Wall -Werror -fpic -Ibridge/std -Ibridge/whisper/svdpi -Ibridge/whisper -I../rvvi/include/host/rvvi -Icac/src/lib -Icac/src
 LDLIBS = 
 LDFLAGS ?= -static-libstdc++ -static-libgcc
 
@@ -10,7 +10,8 @@ BUILD_DIR = build
 LIB_DIR = lib
 
 # Source files
-SRCS = $(shell find bridge cac env mon -name '*.cpp' -o -name '*.cxx' -o -name '*.cc')
+SRCS = bridge/whisper/whisper_client.cpp bridge/whisper/whisper_rvvi.cpp \
+       cac/src/cacCore.cxx cac/src/info.cxx cac/src/memory.cxx cac/src/register.cxx
 $(info SRCS=$(SRCS))
 OBJS = $(patsubst %.cc, $(BUILD_DIR)/%.o, $(patsubst %.cxx, $(BUILD_DIR)/%.o, $(patsubst %.cpp, $(BUILD_DIR)/%.o, $(SRCS))))
 $(info OBJS=$(OBJS))

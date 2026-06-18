@@ -210,7 +210,6 @@ bool compareValue(const char *kind, uint32_t hartId, uint64_t index,
 {
   state.metrics[RVVI_METRIC_MISMATCHES] += ((dut & mask) != (ref & mask)) ? 1 : 0;
   if ((dut & mask) == (ref & mask)) {
-    state.lastError.clear();
     return true;
   }
   std::ostringstream os;
@@ -481,8 +480,7 @@ extern "C" bool_t rvviRefGprsCompareWritten(uint32_t hartId, bool_t ignoreX0)
     return RVVI_FALSE;
   state.metrics[RVVI_METRIC_COMPARISONS_GPR]++;
   const uint32_t dutWritten = state.dutHarts[hartId].gprsWritten;
-  const uint32_t refWritten = state.refHarts[hartId].gprsWritten;
-  const uint32_t compareWritten = dutWritten | refWritten;
+  const uint32_t compareWritten = dutWritten;
   bool ok = true;
   for (uint32_t i = 0; i < kGprCount; ++i) {
     if (ignoreX0 && i == 0)

@@ -1,22 +1,22 @@
 cc_binary(
     name = "dpi",
-    srcs = glob(["**/*.cc", "**/*.cpp", "**/*.hpp", "**/*.h"]),
+    srcs = [
+        "bridge/whisper/whisper_client.cpp",
+        "bridge/whisper/whisper_client.h",
+        "bridge/whisper/whisper_rvvi.cpp",
+        "bridge/whisper/WhisperMessage.h",
+    ],
     linkshared = True,
     copts = [
-        "-Ibridge",
         "-Ibridge/std",
         "-Ibridge/whisper",
         "-Ibridge/whisper/svdpi",
-        "-Imon/mon_instr",
-        "-Ienv",
-        "-Iexternal/CoreArchChecker/src",
-        "-Iexternal/whisper",
+        "-I../rvvi/include/host/rvvi",
+        "-Icac/src/lib",
+        "-Icac/src",
     ],
     deps  = [
         "//cac/src:caccore",
-    ],
-    data = [
-        "@whisper//:whisper",
     ],
 )
     
