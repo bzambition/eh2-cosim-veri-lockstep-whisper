@@ -15,10 +15,10 @@ module rvvi_scoreboard #(
 
   localparam longint unsigned CFG_WHISPER_PATH        = 1;
   localparam longint unsigned CFG_WHISPER_JSON        = 2;
-	  localparam longint unsigned CFG_WHISPER_SERVER_FILE = 3;
-	  localparam longint unsigned NET_MIP                 = 12'h344;
+  localparam longint unsigned CFG_WHISPER_SERVER_FILE = 3;
 
   bit enabled;
+  bit debug_poke_enabled;
   bit initialized;
   int rvvi_client;
   longint unsigned cycle_q;
@@ -26,6 +26,12 @@ module rvvi_scoreboard #(
   string whisper_path;
   string whisper_json_path;
   string whisper_server_file;
+  longint mip_net;
+  longint debug_mode_net;
+  bit debug_mode_q[NHART];
+  bit debug_mode_known_q[NHART];
+  bit debug_pending_q[NHART];
+  bit debug_pending_value_q[NHART];
 
   typedef struct {
     longint unsigned addr;
@@ -85,12 +91,23 @@ module rvvi_scoreboard #(
     $finish;
   endtask
 
-	  task automatic compare_retire(input int h, input int r);
-	    bit ok;
-	    if (rvvi.intr[h][r]) begin
-	      rvviRefNetSet(NET_MIP, rvvi.csr[h][r][12'h344], h);
-	    end
-	    if (rvvi.trap[h][r]) begin
+  task automatic sync_pending_debug(input int h);
+    if (debug_poke_enabled && debug_pending_q[h]) begin
+      rvviRefNetGroupSet(debug_mode_net, h);
+      rvviRefNetSet(debug_mode_net, debug_pending_value_q[h], cycle_q);
+      debug_pending_q[h] = 1'b0;
+    end else if (!debug_poke_enabled) begin
+      debug_pending_q[h] = 1'b0;
+    end
+  endtask
+
+  task automatic compare_retire(input int h, input int r);
+    bit ok;
+    if (rvvi.intr[h][r]) begin
+      rvviRefNetGroupSet(mip_net, h);
+      rvviRefNetSet(mip_net, rvvi.csr[h][r][12'h344], cycle_q);
+    end
+    if (rvvi.trap[h][r]) begin
       rvviDutTrap(h, rvvi.pc_rdata[h][r], rvvi.insn[h][r]);
     end else begin
       rvviDutRetire(h, rvvi.pc_rdata[h][r], rvvi.insn[h][r],
@@ -131,11 +148,17 @@ module rvvi_scoreboard #(
   initial begin
     enabled = $test$plusargs("cosim_arch_checker") ||
               $test$plusargs("lockstep_whisper");
+    debug_poke_enabled = $test$plusargs("rvvi_debug_poke");
     initialized = 1'b0;
     if (enabled) begin
       rvvi_client = rvvi.client_register(1'b1, 1'b1);
       if (!rvviVersionCheck(RVVI_API_VERSION)) begin
         $fatal(1, "RVVI-API version mismatch");
+      end
+      mip_net = rvviRefNetIndexGet("mip");
+      debug_mode_net = rvviRefNetIndexGet("debug_mode");
+      if (mip_net < 0 || debug_mode_net < 0) begin
+        $fatal(1, "RVVI scoreboard requires mip/debug_mode net support");
       end
       if ($value$plusargs("whisper_path=%s", whisper_path)) begin
         void'(rvviRefConfigSetString(CFG_WHISPER_PATH, whisper_path));
@@ -175,8 +198,20 @@ module rvvi_scoreboard #(
     string net_name;
     longint unsigned net_value;
     longint unsigned net_slot;
-    if (rst_l && enabled && initialized) begin
+    if (!rst_l) begin
       for (int h = 0; h < NHART; h++) begin
+        debug_mode_q[h] = 1'b0;
+        debug_mode_known_q[h] = 1'b0;
+        debug_pending_q[h] = 1'b0;
+        debug_pending_value_q[h] = 1'b0;
+      end
+    end else if (enabled && initialized) begin
+      for (int h = 0; h < NHART; h++) begin
+        bit packet_has_retire;
+        bit packet_debug_mode;
+        sync_pending_debug(h);
+        packet_has_retire = 1'b0;
+        packet_debug_mode = debug_mode_q[h];
         while (rvvi.net_pop(rvvi_client, net_name, net_value, net_slot)) begin
           if (net_name == "store_data") begin
             store_data_q.push_back(net_value & 64'hffff_ffff);
@@ -200,6 +235,18 @@ module rvvi_scoreboard #(
         for (int r = 0; r < RETIRE; r++) begin
           if (rvvi.valid[h][r]) begin
             compare_retire(h, r);
+            packet_has_retire = 1'b1;
+            packet_debug_mode = rvvi.debug_mode[h][r];
+          end
+        end
+        if (packet_has_retire) begin
+          if (!debug_mode_known_q[h]) begin
+            debug_mode_q[h] = packet_debug_mode;
+            debug_mode_known_q[h] = 1'b1;
+          end else if (debug_mode_q[h] != packet_debug_mode) begin
+            debug_mode_q[h] = packet_debug_mode;
+            debug_pending_q[h] = 1'b1;
+            debug_pending_value_q[h] = packet_debug_mode;
           end
         end
       end

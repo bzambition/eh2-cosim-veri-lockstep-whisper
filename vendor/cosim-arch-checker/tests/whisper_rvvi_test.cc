@@ -149,6 +149,27 @@ static void mismatch_error_survives_later_successful_compare()
   assert(std::strstr(rvviErrorGet(), "MEM") != nullptr);
 }
 
+static void rvvi_net_groups_are_hart_scoped_and_debug_is_edge_based()
+{
+  const uint64_t mip = rvviRefNetIndexGet("mip");
+  const uint64_t debug = rvviRefNetIndexGet("debug_mode");
+  assert(mip != static_cast<uint64_t>(RVVI_INVALID_INDEX));
+  assert(debug != static_cast<uint64_t>(RVVI_INVALID_INDEX));
+
+  rvviRefNetGroupSet(mip, 1);
+  rvviRefNetSet(mip, 0x80, 123);
+  assert(rvviRefCsrGet(1, 0x344) == 0x80);
+  assert(rvviRefCsrGet(0, 0x344) != 0x80);
+
+  rvviRefNetGroupSet(debug, 1);
+  rvviRefNetSet(debug, 1, 124);
+  assert(rvviRefNetGet(debug) == 1);
+  rvviRefNetSet(debug, 1, 125);
+  assert(rvviRefNetGet(debug) == 1);
+  rvviRefNetSet(debug, 0, 126);
+  assert(rvviRefNetGet(debug) == 0);
+}
+
 int main()
 {
   version_check_accepts_header_version();
@@ -157,6 +178,7 @@ int main()
   dut_facade_reports_csr_mismatch_unless_masked();
   dut_facade_reports_memory_mismatch();
   mismatch_error_survives_later_successful_compare();
+  rvvi_net_groups_are_hart_scoped_and_debug_is_edge_based();
   ref_step_reports_state_when_integration_env_is_present();
   return 0;
 }

@@ -279,6 +279,26 @@ make regress LOCKSTEP_WHISPER=1 TESTLIST=riscvdv TEST=riscv_debug_test ITERATION
 
 **验收门（二选一）：** ①debug 经标准 API 注入 PASS；②文档化降级 + 兜底绿 + 记 Phase 4。interrupt 组 PASS。
 
+**执行记录（2026-06-19）：downgrade。**
+
+- `mip`/interrupt 已改走标准 `rvviRefNetSet`：SV scoreboard 通过
+  `rvviRefNetIndexGet("mip")` + `rvviRefNetGroupSet(..., hart)` 选择
+  hart，后端将该 net 映射到 Whisper CSR `mip(0x344)` poke。
+- 证据：`build/p34_irq_api/report.json`，`riscv_interrupt_test`
+  `ITERATIONS=1`，`Total: 1 | Passed: 1 | Failed: 0`。
+- debug server command 后端已实现为 opt-in 能力：
+  `rvviRefNetIndexGet("debug_mode")` + `rvviRefNetSet` 可映射到
+  Whisper `EnterDebug`/`ExitDebug`，但只有传入 `+rvvi_debug_poke`
+  时 scoreboard 才会主动发送命令。
+- 主动 debug 注入仍未闭合：开启实验路径后
+  `build/p34_debug_api/` 中 `riscv_debug_test` 失败，
+  `whisper_connect.cmd.log` 记录到 `enter_debug true` 后
+  下一次 step 失败，符合 Phase 2 已记录的 debug halt 时序风险。
+- 默认路径保持在线 lockstep debug 兜底，不声称 debug closure。
+  证据：`build/p34_debug_downgrade_default/report.json`，
+  `riscv_debug_test` `ITERATIONS=1`，
+  `Total: 1 | Passed: 1 | Failed: 0`。
+
 ---
 
 ## 任务 6（P3.5）：riscvdv + 双 hart + 性能（RVVI-API 路全量验证）

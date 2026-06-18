@@ -309,7 +309,10 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("vendor/rvvi/source/host/rvvi/rvviApiPkg.sv", tb_f)
         self.assertIn("rvvi_scoreboard.sv", tb_f)
         self.assertNotIn("rvvi_cac_bridge.sv", tb_f)
-        self.assertIn("whisperPoke(0, 'c', netIndex", rvvi_backend)
+        self.assertIn("rvviRefNetGroupSet", rvvi_backend)
+        self.assertIn("whisperPoke(hartId, 'c', kCsrMip", rvvi_backend)
+        self.assertIn("whisperEnterDebug", rvvi_backend)
+        self.assertIn("whisperExitDebug", rvvi_backend)
 
     def test_testlist_marks_known_non_cosim_tests_disabled(self):
         testlist_path = SCRIPT_DIR.parent / "riscv_dv_extension" / "testlist.yaml"

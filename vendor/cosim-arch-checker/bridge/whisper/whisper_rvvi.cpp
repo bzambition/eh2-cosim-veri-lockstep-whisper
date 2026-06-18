@@ -27,6 +27,9 @@ constexpr unsigned kConnectTimeoutMs = 5000;
 constexpr uint64_t kConfigWhisperPath = 1;
 constexpr uint64_t kConfigWhisperJson = 2;
 constexpr uint64_t kConfigWhisperServerFile = 3;
+constexpr uint64_t kNetMip = 1;
+constexpr uint64_t kNetDebugMode = 2;
+constexpr uint32_t kCsrMip = 0x344;
 
 struct HartState {
   uint64_t pc = 0;
@@ -46,6 +49,8 @@ struct RvviState {
   std::array<HartState, kMaxHarts> dutHarts;
   std::array<std::set<uint32_t>, kMaxHarts> csrCompareDisabled;
   std::array<std::map<uint32_t, uint64_t>, kMaxHarts> csrCompareMasks;
+  std::map<uint64_t, uint32_t> netGroups;
+  std::map<std::pair<uint32_t, uint64_t>, uint64_t> nets;
   std::string loadedCsrMaskFile;
   std::array<uint64_t, RVVI_METRIC_FATALS + 1> metrics{};
   std::string lastError;
@@ -348,7 +353,9 @@ extern "C" uint64_t rvviRefNetIndexGet(const char *name)
   if (!name)
     return RVVI_INVALID_INDEX;
   if (std::strcmp(name, "mip") == 0)
-    return 0x344;
+    return kNetMip;
+  if (std::strcmp(name, "debug_mode") == 0)
+    return kNetDebugMode;
   return RVVI_INVALID_INDEX;
 }
 
@@ -373,12 +380,64 @@ extern "C" void rvviDutCsrSet(uint32_t hartId, uint32_t csrIndex, uint64_t value
     return;
   state.dutHarts[hartId].csrs[csrIndex] = value;
 }
-extern "C" void rvviRefNetGroupSet(uint64_t, uint32_t) {}
+extern "C" void rvviRefNetGroupSet(uint64_t netIndex, uint32_t group)
+{
+  if (group >= kMaxHarts) {
+    setError("invalid net group hart id " + std::to_string(group));
+    return;
+  }
+  state.netGroups[netIndex] = group;
+}
 
 extern "C" void rvviRefNetSet(uint64_t netIndex, uint64_t value, uint64_t)
 {
+  uint32_t hartId = 0;
+  const auto group = state.netGroups.find(netIndex);
+  if (group != state.netGroups.end())
+    hartId = group->second;
+  if (!validHart(hartId))
+    return;
+
+  const auto key = std::make_pair(hartId, netIndex);
+  const uint64_t oldValue = state.nets.count(key) ? state.nets[key] : 0;
+  state.nets[key] = value;
+
+  if (netIndex == kNetMip) {
+    state.refHarts[hartId].csrs[kCsrMip] = value;
+    if (!state.initialized)
+      return;
+    bool valid = false;
+    if (!whisperPoke(hartId, 'c', kCsrMip, value, valid))
+      setError("whisper mip net poke command failed");
+    else if (!valid)
+      setError("whisper mip net poke returned invalid");
+    return;
+  }
+
+  if (netIndex == kNetDebugMode) {
+    if (oldValue == value)
+      return;
+    if (!state.initialized)
+      return;
+    bool valid = false;
+    if (value) {
+      if (!whisperEnterDebug(hartId, true, valid))
+        setError("whisper enter-debug command failed");
+      else if (!valid)
+        setError("whisper enter-debug returned invalid");
+    } else {
+      if (!whisperExitDebug(hartId, valid))
+        setError("whisper exit-debug command failed");
+      else if (!valid)
+        setError("whisper exit-debug returned invalid");
+    }
+    return;
+  }
+
   bool valid = false;
-  if (!whisperPoke(0, 'c', netIndex, value, valid))
+  if (!state.initialized)
+    return;
+  if (!whisperPoke(hartId, 'c', netIndex, value, valid))
     setError("whisper net poke command failed");
   else if (!valid)
     setError("whisper net poke returned invalid");
@@ -386,9 +445,17 @@ extern "C" void rvviRefNetSet(uint64_t netIndex, uint64_t value, uint64_t)
 
 extern "C" uint64_t rvviRefNetGet(uint64_t netIndex)
 {
-  uint64_t value = 0;
-  (void)peekResource(0, 'c', netIndex, value);
-  return value;
+  uint32_t hartId = 0;
+  const auto group = state.netGroups.find(netIndex);
+  if (group != state.netGroups.end())
+    hartId = group->second;
+  const auto key = std::make_pair(hartId, netIndex);
+  const auto found = state.nets.find(key);
+  if (found != state.nets.end())
+    return found->second;
+  if (netIndex == kNetMip)
+    return rvviRefCsrGet(hartId, kCsrMip);
+  return 0;
 }
 
 extern "C" void rvviDutRetire(uint32_t hartId, uint64_t dutPc,

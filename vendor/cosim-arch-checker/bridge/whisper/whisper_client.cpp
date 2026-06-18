@@ -366,6 +366,35 @@ whisperPoke(int hart, char resource, uint64_t addr, uint64_t value,
   return true;
 }
 
+extern "C"
+bool
+whisperEnterDebug(int hart, bool force, bool& valid)
+{
+  WhisperMessage req(hart, WhisperMessageType::EnterDebug);
+  req.flags = force ? 1 : 0;
+  WhisperMessage reply;
+
+  if (not whisperCommand(req, reply))
+    return false;
+
+  valid = reply.type != WhisperMessageType::Invalid;
+  return true;
+}
+
+extern "C"
+bool
+whisperExitDebug(int hart, bool& valid)
+{
+  WhisperMessage req(hart, WhisperMessageType::ExitDebug);
+  WhisperMessage reply;
+
+  if (not whisperCommand(req, reply))
+    return false;
+
+  valid = reply.type != WhisperMessageType::Invalid;
+  return true;
+}
+
 
 extern "C"
 bool

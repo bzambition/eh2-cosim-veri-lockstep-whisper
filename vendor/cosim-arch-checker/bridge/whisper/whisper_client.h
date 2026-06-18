@@ -54,6 +54,14 @@ whisperPoke(int hart, char resource, uint64_t addr, uint64_t value,
 
 extern "C"
 bool
+whisperEnterDebug(int hart, bool force, bool& valid);
+
+extern "C"
+bool
+whisperExitDebug(int hart, bool& valid);
+
+extern "C"
+bool
 whisperPeek(int hart, char resource, uint64_t addr, uint64_t& value,
   bool& valid);
 
