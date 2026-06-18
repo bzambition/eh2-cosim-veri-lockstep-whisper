@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 
 #include "rvviApi.h"
@@ -66,10 +67,59 @@ static void ref_step_reports_state_when_integration_env_is_present()
   assert(rvviRefShutdown() == RVVI_TRUE);
 }
 
+static void dut_facade_reports_gpr_mismatch()
+{
+  rvviDutRetire(0, 0x80000000ull, 0x13, RVVI_FALSE);
+  assert(rvviRefPcSet(0, 0x80000000ull) == RVVI_TRUE);
+  rvviDutGprSet(0, 5, 0x1234);
+  rvviRefGprSet(0, 5, 0x1235);
+
+  assert(rvviRefGprsCompareWritten(0, RVVI_TRUE) == RVVI_FALSE);
+  assert(std::strstr(rvviErrorGet(), "GPR") != nullptr);
+}
+
+static void dut_facade_reports_csr_mismatch_unless_masked()
+{
+  const char *mask_path = "/tmp/rvvi_csr_mask_test.txt";
+  {
+    std::ofstream mask(mask_path);
+    mask << "0xb00 0x0 # mcycle fully masked\n";
+  }
+  setenv("CAC_CSR_MASK_FILE", mask_path, 1);
+
+  rvviDutRetire(0, 0x80000004ull, 0x13, RVVI_FALSE);
+  assert(rvviRefPcSet(0, 0x80000004ull) == RVVI_TRUE);
+  rvviDutCsrSet(0, 0xb00, 0x1111);
+  rvviRefCsrSet(0, 0xb00, 0x2222);
+  assert(rvviRefCsrsCompare(0) == RVVI_TRUE);
+
+  rvviDutRetire(0, 0x80000008ull, 0x13, RVVI_FALSE);
+  assert(rvviRefPcSet(0, 0x80000008ull) == RVVI_TRUE);
+  rvviDutCsrSet(0, 0x7c0, 0x1111);
+  rvviRefCsrSet(0, 0x7c0, 0x2222);
+  assert(rvviRefCsrsCompare(0) == RVVI_FALSE);
+  assert(std::strstr(rvviErrorGet(), "CSR") != nullptr);
+
+  unsetenv("CAC_CSR_MASK_FILE");
+}
+
+static void dut_facade_reports_memory_mismatch()
+{
+  rvviDutRetire(0, 0x8000000cull, 0x13, RVVI_FALSE);
+  assert(rvviRefPcSet(0, 0x8000000cull) == RVVI_TRUE);
+  rvviDutBusWrite(0, 0x80001000ull, 0xaa, 0x1);
+  rvviRefMemoryWrite(0, 0x80001000ull, 0xbb, 1);
+
+  assert(rvviRefCsrsCompare(0) == RVVI_FALSE);
+  assert(std::strstr(rvviErrorGet(), "MEM") != nullptr);
+}
+
 int main()
 {
   version_check_accepts_header_version();
+  dut_facade_reports_gpr_mismatch();
+  dut_facade_reports_csr_mismatch_unless_masked();
+  dut_facade_reports_memory_mismatch();
   ref_step_reports_state_when_integration_env_is_present();
-  assert(std::strlen(rvviErrorGet()) == 0);
   return 0;
 }

@@ -1,6 +1,6 @@
 # Compiler settings
 CC = g++
-CFLAGS = -std=c++17 -Wall -Werror -Wno-unused-private-field -fpic -Imon/mon_instr -Ibridge/std -Ibridge -Ienv -Ibridge/whisper/svdpi -Ibridge/whisper -I../rvvi/include/host/rvvi -Icac/src/lib -Icac/src
+CFLAGS = -std=c++17 -Wall -Werror -fpic -Imon/mon_instr -Ibridge/std -Ibridge -Ienv -Ibridge/whisper/svdpi -Ibridge/whisper -I../rvvi/include/host/rvvi -Icac/src/lib -Icac/src
 LDLIBS = 
 LDFLAGS ?= -static-libstdc++ -static-libgcc
 
