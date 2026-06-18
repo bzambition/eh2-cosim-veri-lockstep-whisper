@@ -1,6 +1,6 @@
 # Compiler settings
 CC = g++
-CFLAGS = -std=c++17 -Wall -Werror -Wno-unused-private-field -fpic -Imon/mon_instr -Ibridge/std -Ibridge -Ienv -Ibridge/whisper/svdpi -Ibridge/whisper -Icac/src/lib -Icac/src
+CFLAGS = -std=c++17 -Wall -Werror -Wno-unused-private-field -fpic -Imon/mon_instr -Ibridge/std -Ibridge -Ienv -Ibridge/whisper/svdpi -Ibridge/whisper -I../rvvi/include/host/rvvi -Icac/src/lib -Icac/src
 LDLIBS = 
 LDFLAGS ?= -static-libstdc++ -static-libgcc
 
@@ -30,10 +30,15 @@ clean:
 $(LIB_DIR)/lib$(LIB_NAME).so: $(OBJS)
 	$(CC) $(LDFLAGS) $(LDLIBS) -shared -Wl,-soname,lib$(LIB_NAME).so -o $@ $^
 
-test: $(BUILD_DIR)/tests/cac_state_test
+test: $(BUILD_DIR)/tests/cac_state_test $(BUILD_DIR)/tests/whisper_rvvi_test
 	LD_LIBRARY_PATH=$(dir $(CC))../lib64:$(dir $(CC))../lib:$$LD_LIBRARY_PATH $(BUILD_DIR)/tests/cac_state_test
+	LD_LIBRARY_PATH=$(dir $(CC))../lib64:$(dir $(CC))../lib:$$LD_LIBRARY_PATH $(BUILD_DIR)/tests/whisper_rvvi_test
 
 $(BUILD_DIR)/tests/cac_state_test: tests/cac_state_test.cc cac/src/cacCore.cxx cac/src/info.cxx cac/src/memory.cxx cac/src/register.cxx
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -o $@ $^
+
+$(BUILD_DIR)/tests/whisper_rvvi_test: tests/whisper_rvvi_test.cc bridge/whisper/whisper_rvvi.cpp bridge/whisper/whisper_client.cpp
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -o $@ $^
 
