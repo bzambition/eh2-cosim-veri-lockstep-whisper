@@ -322,6 +322,21 @@ make regress LOCKSTEP_WHISPER=1 TESTLIST=cosim CONFIG=dual_thread OUT=build/p35_
 
 **验收门：** riscvdv 无未解释失配（仅 2 个既有 tracked-broken csr）+ 双 hart PASS + 性能可接受。
 
+**执行记录（2026-06-19）：通过，性能可接受。**
+
+- 性能门：`build/p35_perf/report.json`，
+  `riscv_stress_test ITERATIONS=1`，`Total: 1 | Passed: 1 | Failed: 0`。
+  `/usr/bin/time` 记录 wall `96.11s`；该 run 重新编译耗时较多，
+  report 中单测试 `sim_time_sec=38.89s`、`cycles=32526`。
+- riscvdv 全量：`build/p35_riscvdv/report.json`，
+  `Total: 405 | Passed: 400 | Failed: 5`，run_regress 返回 success。
+  5 个失败均为既有 tracked-broken `riscv_csr_test` seeds 1-5；
+  其它测试（含 interrupt/debug/PMP/随机压力）无未解释失配。
+  `riscv_csr_hazard_test` 本轮 seeds 1-5 均 PASS。
+- 双 hart：`build/p35_dual/report.json`，
+  `CONFIG=dual_thread TESTLIST=cosim`，
+  `Total: 7 | Passed: 7 | Failed: 0`。
+
 ---
 
 ## 任务 7（P3.6）：干净 full signoff（COV=1）
