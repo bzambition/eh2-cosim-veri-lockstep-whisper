@@ -116,26 +116,26 @@ Push 前终检：
 
 注：VCS 在 ignored `build/` 目录下生成过 `.so` 符号链接。发布前仅删除这些 ignored build symlink，保留 `build/signoff_p63_release` 下的 JSON、Markdown、HTML 证据文件。
 
-首次发布命令：
+最终发布命令：
 
 ```bash
 git push github HEAD:main
-git push github v3.0-lockstep-whisper
+git push --force github v3.0-lockstep-whisper
 ```
 
 结果：
 
 ```text
-* [new branch]      HEAD -> main
-* [new tag]         v3.0-lockstep-whisper -> v3.0-lockstep-whisper
+c59e799..7f43eea  HEAD -> main
+7f43a94...4679ac0 v3.0-lockstep-whisper -> v3.0-lockstep-whisper (forced update)
 ```
 
 远端核对：
 
 ```text
-c59e799a49d905d1ba58720e570a498e71d372ca refs/heads/main
-7f43a949cb0022938a6aa21d70616073b3ad0670 refs/tags/v3.0-lockstep-whisper
-c59e799a49d905d1ba58720e570a498e71d372ca refs/tags/v3.0-lockstep-whisper^{}
+7f43eea470a36ea06fa47e6dde6adfc44e62693f refs/heads/main
+4679ac03230f3a45553e27ea719dd9050f9fddae refs/tags/v3.0-lockstep-whisper
+7f43eea470a36ea06fa47e6dde6adfc44e62693f refs/tags/v3.0-lockstep-whisper^{}
 ```
 
-本节作为发布核对记录补交后，release tag 需要再次移动到最终文档提交，并重新推送 `main` 与 tag。最终 hash 以提交后的终检为准。
+本地 `HEAD` 与 `v3.0-lockstep-whisper^{}` 均指向 `7f43eea470a36ea06fa47e6dde6adfc44e62693f`。远端 `main` 与 tag 解引用一致，发布到新仓完成。
