@@ -358,7 +358,7 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("rvvi_scoreboard.sv", tb_f)
         self.assertNotIn("rvvi_cac_bridge.sv", tb_f)
         self.assertIn("rvviRefNetGroupSet", rvvi_backend)
-        self.assertIn("whisperPoke(hartId, 'c', kCsrMip", rvvi_backend)
+        self.assertIn("whisperPoke(hartId, kResourceCsr, kCsrMip", rvvi_backend)
         self.assertIn("whisperEnterDebug", rvvi_backend)
         self.assertIn("whisperExitDebug", rvvi_backend)
 

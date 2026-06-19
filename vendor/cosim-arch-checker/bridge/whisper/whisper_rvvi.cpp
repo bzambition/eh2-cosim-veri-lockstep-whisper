@@ -1,4 +1,9 @@
 // Licensed under the Apache License, Version 2.0, see ../../LICENSE.TT for details
+//
+// RVVI-API facade for cosim-arch-checker.  The SystemVerilog scoreboard stages
+// DUT retire state through the standard rvviDut*/rvviRef* entry points here;
+// this file keeps the generic comparison state and drives Whisper as an
+// out-of-process reference model over the existing socket client.
 
 #include "rvviApi.h"
 
@@ -30,6 +35,10 @@ constexpr uint64_t kConfigWhisperServerFile = 3;
 constexpr uint64_t kNetMip = 1;
 constexpr uint64_t kNetDebugMode = 2;
 constexpr uint32_t kCsrMip = 0x344;
+constexpr char kResourceGpr = 'r';
+constexpr char kResourceCsr = 'c';
+constexpr char kResourceMemory = 'm';
+constexpr char kResourcePc = 'p';
 
 struct HartState {
   uint64_t pc = 0;
@@ -117,6 +126,8 @@ bool connectWhisperServer(const std::string &serverFile)
 
 std::string resolveWhisperPath()
 {
+  // Preserve the historical priority: simulator environment, RVVI-specific
+  // environment, then the value staged through rvviRefConfigSetString().
   if (const char *path = getenvNonEmpty("WHISPER_PATH"))
     return path;
   if (const char *path = getenvNonEmpty("WHISPER_RVVI_WHISPER_PATH"))
@@ -126,6 +137,8 @@ std::string resolveWhisperPath()
 
 std::string resolveWhisperJson()
 {
+  // JSON selection is owned by the harness/config side; the checker itself
+  // stays path-agnostic and only consumes the resolved value.
   if (const char *path = getenvNonEmpty("WHISPER_RVVI_JSON_PATH"))
     return path;
   if (const char *path = getenvNonEmpty("WHISPER_JSON_PATH"))
@@ -138,16 +151,16 @@ void applyChange(uint32_t hartId, uint32_t resource, uint64_t addr, uint64_t val
 {
   HartState &hart = state.refHarts[hartId];
   switch (resource) {
-    case 'r':
+    case kResourceGpr:
       if (addr < kGprCount) {
         hart.gprs[addr] = value;
         hart.gprsWritten |= (1u << addr);
       }
       break;
-    case 'c':
+    case kResourceCsr:
       hart.csrs[static_cast<uint32_t>(addr)] = value;
       break;
-    case 'm': {
+    case kResourceMemory: {
       const unsigned size = flags & 0xffu;
       const unsigned bytes = (size >= 1 && size <= 8) ? size : 8;
       for (unsigned i = 0; i < bytes; ++i)
@@ -313,7 +326,7 @@ extern "C" bool_t rvviRefPcSet(uint32_t hartId, uint64_t address)
     return RVVI_FALSE;
   if (state.initialized) {
     bool valid = false;
-    if (!whisperPoke(hartId, 'p', 0, address, valid)) {
+    if (!whisperPoke(hartId, kResourcePc, 0, address, valid)) {
       setError("whisper PC poke command failed");
       return RVVI_FALSE;
     }
@@ -338,6 +351,8 @@ extern "C" bool_t rvviRefShutdown(void)
   return RVVI_TRUE;
 }
 
+// Optional RVVI-API hooks that are not used by the scalar lockstep path are
+// implemented as inert stubs so the shared object still conforms to rvviApi.h.
 extern "C" bool_t rvviRefCsrSetVolatile(uint32_t, uint32_t)
 {
   return RVVI_TRUE;
@@ -407,7 +422,7 @@ extern "C" void rvviRefNetSet(uint64_t netIndex, uint64_t value, uint64_t)
     if (!state.initialized)
       return;
     bool valid = false;
-    if (!whisperPoke(hartId, 'c', kCsrMip, value, valid))
+    if (!whisperPoke(hartId, kResourceCsr, kCsrMip, value, valid))
       setError("whisper mip net poke command failed");
     else if (!valid)
       setError("whisper mip net poke returned invalid");
@@ -437,7 +452,7 @@ extern "C" void rvviRefNetSet(uint64_t netIndex, uint64_t value, uint64_t)
   bool valid = false;
   if (!state.initialized)
     return;
-  if (!whisperPoke(hartId, 'c', netIndex, value, valid))
+  if (!whisperPoke(hartId, kResourceCsr, netIndex, value, valid))
     setError("whisper net poke command failed");
   else if (!valid)
     setError("whisper net poke returned invalid");
@@ -643,7 +658,7 @@ extern "C" void rvviRefGprSet(uint32_t hartId, uint32_t gprIndex, uint64_t gprVa
   state.refHarts[hartId].gprs[gprIndex] = gprValue;
   if (state.initialized) {
     bool valid = false;
-    if (!whisperPoke(hartId, 'r', gprIndex, gprValue, valid))
+    if (!whisperPoke(hartId, kResourceGpr, gprIndex, gprValue, valid))
       setError("whisper GPR poke command failed");
   }
 }
@@ -656,7 +671,7 @@ extern "C" uint64_t rvviRefGprGet(uint32_t hartId, uint32_t gprIndex)
     return 0;
   uint64_t value = state.refHarts[hartId].gprs[gprIndex];
   if (value == 0 && state.initialized)
-    (void)peekResource(hartId, 'r', gprIndex, value);
+    (void)peekResource(hartId, kResourceGpr, gprIndex, value);
   state.refHarts[hartId].gprs[gprIndex] = value;
   return value;
 }
@@ -683,7 +698,7 @@ extern "C" uint64_t rvviRefCsrGet(uint32_t hartId, uint32_t csrIndex)
   if (found != state.refHarts[hartId].csrs.end())
     return found->second;
   uint64_t value = 0;
-  if (state.initialized && peekResource(hartId, 'c', csrIndex, value))
+  if (state.initialized && peekResource(hartId, kResourceCsr, csrIndex, value))
     state.refHarts[hartId].csrs[csrIndex] = value;
   return value;
 }
@@ -716,7 +731,7 @@ extern "C" void rvviRefMemoryWrite(uint32_t hartId, uint64_t address,
     return;
   if (state.initialized) {
     bool valid = false;
-    if (!whisperPoke(hartId, 'm', address, data, valid))
+    if (!whisperPoke(hartId, kResourceMemory, address, data, valid))
       setError("whisper memory poke command failed");
   }
   for (uint32_t i = 0; i < size && i < 8; ++i)
@@ -740,7 +755,7 @@ extern "C" uint64_t rvviRefMemoryRead(uint32_t hartId, uint64_t address,
     value |= uint64_t(found->second) << (8 * i);
   }
   if (!haveAllBytes && state.initialized)
-    (void)peekResource(hartId, 'm', address, value);
+    (void)peekResource(hartId, kResourceMemory, address, value);
   return value;
 }
 
@@ -789,7 +804,7 @@ extern "C" void rvviRefCsrSet(uint32_t hartId, uint32_t csrIndex, uint64_t value
   state.refHarts[hartId].csrs[csrIndex] = value;
   if (state.initialized) {
     bool valid = false;
-    if (!whisperPoke(hartId, 'c', csrIndex, value, valid))
+    if (!whisperPoke(hartId, kResourceCsr, csrIndex, value, valid))
       setError("whisper CSR poke command failed");
   }
 }

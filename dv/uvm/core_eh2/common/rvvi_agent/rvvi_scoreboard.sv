@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Generic RVVI-TRACE scoreboard that drives the standard RVVI-API.
+//
+// This module is the thin SystemVerilog shell in the lockstep flow: it consumes
+// rvviTrace retire, register, CSR, and memory events, stages them through
+// rvviApiPkg, and leaves comparison policy in the C++ checker.
 
 module rvvi_scoreboard #(
   parameter int NHART  = 1,
@@ -93,6 +97,9 @@ module rvvi_scoreboard #(
   endtask
 
   task automatic sync_pending_debug(input int h);
+    // Debug active injection is opt-in because the halt/resume packet boundary
+    // model is not closed yet.  When enabled, edges observed at the end of one
+    // retire packet are sent before the next packet steps the reference model.
     if (debug_poke_enabled && debug_pending_q[h]) begin
       rvviRefNetGroupSet(debug_mode_net, h);
       rvviRefNetSet(debug_mode_net, debug_pending_value_q[h], cycle_q);
@@ -104,6 +111,8 @@ module rvvi_scoreboard #(
 
   task automatic compare_retire(input int h, input int r);
     bit ok;
+    // A retire event is staged in RVVI-API order: async nets, retire/trap,
+    // architectural writes, memory writes, one reference step, then compares.
     if (rvvi.intr[h][r]) begin
       rvviRefNetGroupSet(mip_net, h);
       rvviRefNetSet(mip_net, rvvi.csr[h][r][12'h344], cycle_q);
@@ -213,6 +222,9 @@ module rvvi_scoreboard #(
         sync_pending_debug(h);
         packet_has_retire = 1'b0;
         packet_debug_mode = debug_mode_q[h];
+        // Store data/mask arrive as rvviTrace nets, while the address arrives
+        // through the memory access queue.  Queue both sides and pair them with
+        // the next retiring store instruction in compare_retire().
         while (rvvi.net_pop(rvvi_client, net_name, net_value, net_slot)) begin
           if (net_name == "store_data") begin
             store_data_q.push_back(net_value & 64'hffff_ffff);
@@ -241,6 +253,9 @@ module rvvi_scoreboard #(
           end
         end
         if (packet_has_retire) begin
+          // Detect debug_mode edges only after all retire slots in the packet
+          // have been processed.  This avoids injecting a halt in the middle of
+          // a dual-retire packet; sync_pending_debug() applies it next packet.
           if (!debug_mode_known_q[h]) begin
             debug_mode_q[h] = packet_debug_mode;
             debug_mode_known_q[h] = 1'b1;
