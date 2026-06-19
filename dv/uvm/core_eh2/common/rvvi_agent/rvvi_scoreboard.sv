@@ -50,6 +50,7 @@ module rvvi_scoreboard #(
     quadrant = insn[1:0];
     funct3 = insn[15:13];
     is_store_insn = (insn[6:0] == 7'h23) ||
+                    (insn[6:0] == 7'h2f) ||
                     (quadrant == 2'b00 && funct3 == 3'h6) ||
                     (quadrant == 2'b10 && funct3 == 3'h6);
   endfunction

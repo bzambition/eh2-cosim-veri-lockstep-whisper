@@ -302,6 +302,10 @@ def summary_from_report_json(report_path: Path) -> RegressionSummary:
         trr.sim_log_path = item.get("sim_log", "")
         trr.uvm_log_path = item.get("uvm_log", "")
         trr.trace_path = item.get("trace", "")
+        if not trr.trace_path and trr.sim_log_path:
+            trace_path = Path(trr.sim_log_path).parent / "rvvi_trace.log"
+            if trace_path.exists():
+                trr.trace_path = str(trace_path)
         trr.assembly_path = item.get("assembly", "")
         trr.binary_path = item.get("binary", "")
         trr.coverage_path = item.get("coverage", "")
@@ -337,7 +341,9 @@ def refresh_failure_classification(summary: RegressionSummary):
             not trr.passed and
             (trr.failure_mode or "") in RECORDED_ONLY_FAILURE_MODES
         )
-        checked = check_sim_log(trr.sim_log_path)
+        checked = check_sim_log(
+            trr.sim_log_path, trr.trace_path,
+            sim_returncode=trr.sim_returncode)
         if recorded_failed and checked.passed:
             trr.uvm_errors = checked.uvm_errors
             trr.uvm_warnings = checked.uvm_warnings

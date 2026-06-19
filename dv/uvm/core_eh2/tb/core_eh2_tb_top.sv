@@ -94,10 +94,13 @@ module core_eh2_tb_top;
   logic [31:0] lsu_trace_store_wdata;
   logic [3:0]  lsu_trace_store_wmask;
   logic [63:0] lsu_trace_store_shifted;
+  logic        lsu_trace_store_write_q;
+  logic [31:0] lsu_trace_store_addr_q;
+  logic [31:0] lsu_trace_store_wdata_q;
 
-  assign mailbox_trace_write = lsu_trace_store_write;
-  assign mailbox_trace_addr  = lsu_trace_store_addr;
-  assign mailbox_trace_data  = {32'b0, lsu_trace_store_wdata};
+  assign mailbox_trace_write = lsu_trace_store_write_q;
+  assign mailbox_trace_addr  = lsu_trace_store_addr_q;
+  assign mailbox_trace_data  = {32'b0, lsu_trace_store_wdata_q};
 
   assign mailbox_axi_write = lsu_axi_awvalid && lsu_axi_awready;
   assign mailbox_axi_addr  = lsu_axi_awaddr;
@@ -118,6 +121,18 @@ module core_eh2_tb_top;
   assign tb_intf.mailbox_data      = mailbox_data;
   assign tb_intf.mailbox_test_done = mailbox_test_done;
   assign tb_intf.early_bin_loaded  = early_bin_loaded;
+
+  always_ff @(posedge core_clk or negedge rst_l) begin
+    if (!rst_l) begin
+      lsu_trace_store_write_q <= 1'b0;
+      lsu_trace_store_addr_q  <= '0;
+      lsu_trace_store_wdata_q <= '0;
+    end else begin
+      lsu_trace_store_write_q <= lsu_trace_store_write;
+      lsu_trace_store_addr_q  <= lsu_trace_store_addr;
+      lsu_trace_store_wdata_q <= lsu_trace_store_wdata;
+    end
+  end
 
   always @(tb_intf.mem_write_req) begin
     lsu_mem.mem[tb_intf.mem_write_addr] = tb_intf.mem_write_data;

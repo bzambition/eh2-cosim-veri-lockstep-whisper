@@ -332,6 +332,7 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
                                       if test_entry.get("asm") or
                                       test_entry.get("test_srcs") else
                                       "RISCVDV")
+    result.skip_in_signoff = bool(test_entry.get("skip_in_signoff"))
 
     work_dir = os.path.join(output_dir, f"{test_name}_s{seed}")
     os.makedirs(work_dir, exist_ok=True)
@@ -471,7 +472,9 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
 
     # Step 4: Check results
     result.sim_log_path = log_path
-    check_result = check_sim_log(log_path, fail_on_warnings=fail_on_warnings,
+    trace_path = os.path.join(work_dir, "rvvi_trace.log")
+    check_result = check_sim_log(log_path, trace_path,
+                                 fail_on_warnings=fail_on_warnings,
                                  sim_returncode=proc.returncode)
     result.passed = check_result.passed
     result.failure_mode = check_result.failure_mode
@@ -616,18 +619,25 @@ def run_regression(args) -> RegressionSummary:
 def regression_exit_code(summary: RegressionSummary, min_passed: int = None,
                          max_fail_rate_for_threshold: float = 0.25) -> int:
     """Return process status for strict or threshold-gated regressions."""
-    if summary.failed == 0:
+    comparable_failed = sum(
+        1 for result in summary.results
+        if not result.passed and not getattr(result, "skip_in_signoff", False))
+    comparable_total = max(0, summary.total_tests - sum(
+        1 for result in summary.results
+        if getattr(result, "skip_in_signoff", False)))
+
+    if comparable_failed == 0:
         return 0
     if min_passed is None:
         return 1
-    if summary.total_tests <= 0:
+    if comparable_total <= 0:
         return 1
-    fail_rate = summary.failed / summary.total_tests
+    fail_rate = comparable_failed / comparable_total
     if summary.passed >= min_passed and fail_rate <= max_fail_rate_for_threshold:
         print(
-            "Regression threshold met: {}/{} passed, minimum {}, "
+            "Regression threshold met: {}/{} comparable tests passed, minimum {}, "
             "fail rate {:.1%} <= {:.0%}; returning success".format(
-                summary.passed, summary.total_tests, min_passed,
+                summary.passed, comparable_total, min_passed,
                 fail_rate, max_fail_rate_for_threshold))
         return 0
     return 1

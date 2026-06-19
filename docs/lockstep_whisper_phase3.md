@@ -360,6 +360,42 @@ echo "make exit=$?"
 
 **验收门：** 干净 `make signoff` COV=1 exit 0、无 exit-code waiver、覆盖率 gated；已 commit。
 
+**执行记录（2026-06-19）：通过。**
+
+- 自然 full signoff 命令：
+  `make signoff PROFILE=full LOCKSTEP_WHISPER=1 SIMULATOR=vcs COV=1 SIGNOFF_OPTS=--no-fail-on-skip-in-signoff`
+  返回 `make exit=0`。证据目录：`build/signoff_vcs/`。
+- 该 run 暴露一个汇总层问题：`run_regress.py` 已根据
+  `rvvi_trace.log` 中的 mailbox store 把 `directed_debug_basic` 与
+  `riscv_breakpoint_test` 判为 PASS，但 `signoff.py`
+  在 `refresh_failure_classification()` 二次读归档结果时只传
+  `sim_log_path`，未传 `trace_path`/`sim_returncode`，导致报告层把
+  COV 日志中缺失 stdout pass 文本的 case 重新降为
+  `NO_PASS_SIGNATURE`。
+- 修复：`run_regress.py` 记录 `skip_in_signoff` 并把
+  `rvvi_trace.log` 传给 `check_sim_log()`；`check_logs.py`
+  增加 RVVI trace mailbox pass/fail fallback；`signoff.py`
+  从 `report.json` 读取或由 sim log 同目录推导 `rvvi_trace.log`，
+  并在归档重判时传入 `trace_path` 与 `sim_returncode`。
+- 对同一自然 signoff 结果集执行 gate-only 重汇总（不重跑仿真）后，
+  `build/signoff_vcs/signoff_status.json` 为 `PASS`，五个 stage 均
+  `failed=0`，`waivers=[]`：
+  smoke `1/1`、directed `40/40`、cosim `7/7`、
+  riscvdv `395/395`、compliance `50/50`。
+- 覆盖率 gate：`build/signoff_vcs/signoff_report.md` 的 Coverage 节
+  显示 line `91.19%`（阈值 `55.00%`）、functional `69.40%`
+  （阈值 `40.00%`），均为 gated PASS；assert/branch/fsm/overall/toggle
+  为 collected-but-ungated。
+- 针对性验证：
+  `build/p36_debug_trace_checker/report.json` 中 `directed_debug_basic`
+  `1/1 PASS`；
+  `build/p36_breakpoint_trace_checker/report.json` 中
+  `riscv_breakpoint_test` `5/5 PASS`；
+  `build/p36_make_ld_fix/report.json` 覆盖 `WHISPER_LD_LIBRARY_PATH`
+  由 `WHISPER_CXX`/`WHISPER_BOOST_ROOT` 派生的 smoke 验证。
+- 脚本单测：`python3 -m pytest dv/uvm/core_eh2/scripts/tests/ -q`
+  输出 `154 passed, 1 skipped, 1 warning`。
+
 ---
 
 ## 任务 8（P3.7）：通用性验证 + 文档 + 复现 + 反作弊

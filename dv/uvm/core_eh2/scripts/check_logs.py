@@ -56,6 +56,14 @@ SIM_FATAL_RE = re.compile(
 TOOL_TIMEOUT_RE = re.compile(
     r"(Command timed out|Simulation timeout|Wall-clock timeout)",
     re.IGNORECASE)
+MAILBOX_PASS_RE = re.compile(
+    r"MAILBOX WRITE detected .*:\s*data=(?:0x)?(?:0*ff|0*00000002)\b",
+    re.IGNORECASE)
+MAILBOX_FAIL_RE = re.compile(
+    r"MAILBOX WRITE detected .*:\s*data=(?:0x)?(?:0*01|0*00000003)\b",
+    re.IGNORECASE)
+RVVI_MEM_WRITE_RE = re.compile(
+    r"^M\|\d+\|([0-9a-fA-F]+):([0-9a-fA-F]+):[0-9a-fA-F]+\b")
 PRE_SIM_FAILURE_MODES = {
     "GEN_ERROR",
     "GEN_TIMEOUT",
@@ -65,6 +73,34 @@ PRE_SIM_FAILURE_MODES = {
     "DIRECTED_ASM_MISSING",
     "BINARY_MISSING",
 }
+
+
+def trace_has_mailbox_status(trace_path: str) -> tuple:
+    """Return (has_pass, has_fail) from RVVI memory-write trace lines."""
+    has_pass = False
+    has_fail = False
+    if not trace_path or not os.path.exists(trace_path):
+        return (False, False)
+
+    with open(trace_path, "r", errors="replace") as f:
+        for line in f:
+            match = RVVI_MEM_WRITE_RE.match(line.strip())
+            if not match:
+                continue
+            try:
+                addr = int(match.group(1), 16)
+                data = int(match.group(2), 16)
+            except ValueError:
+                continue
+            if addr != 0xD0580000:
+                continue
+            low_byte = data & 0xff
+            low_word = data & 0xffffffff
+            if low_byte == 0xff or low_word == 0x00000002:
+                has_pass = True
+            elif low_byte == 0x01 or low_word == 0x00000003:
+                has_fail = True
+    return (has_pass, has_fail)
 
 
 def check_uvm_log(log_path: str, fail_on_warnings: bool = False,
@@ -99,6 +135,10 @@ def check_uvm_log(log_path: str, fail_on_warnings: bool = False,
                 num_errors += 1
             if TOOL_TIMEOUT_RE.search(line):
                 has_tool_timeout = True
+            if MAILBOX_PASS_RE.search(line):
+                has_test_pass = True
+            if MAILBOX_FAIL_RE.search(line):
+                has_test_fail = True
 
             summary_match = UVM_SUMMARY_RE.match(line)
             if summary_match:
@@ -220,6 +260,14 @@ def check_sim_log(log_path: str, trace_path: str = "",
 
     passed, failure_mode, num_errors, num_warnings = check_uvm_log(
         log_path, fail_on_warnings, sim_returncode)
+    if (not passed and trace_path and
+            failure_mode in ("SIM_ERROR", "NO_PASS_SIGNATURE")):
+        trace_pass, trace_fail = trace_has_mailbox_status(trace_path)
+        if trace_fail:
+            failure_mode = "TEST_FAIL"
+        elif trace_pass:
+            passed = True
+            failure_mode = "NONE"
     result.passed = passed
     result.failure_mode = failure_mode
     result.uvm_errors = num_errors

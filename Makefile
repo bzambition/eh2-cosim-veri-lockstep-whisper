@@ -185,7 +185,9 @@ CAC_CXX ?= g++
 CAC_NUM_HARTS ?= $(RVVI_NHART)
 CAC_CXXFLAGS ?= -std=c++17 -Wall -Werror -fpic -Ibridge/std -Ibridge/whisper/svdpi -Ibridge/whisper -I../rvvi/include/host/rvvi -Icac/src/lib -Icac/src -DCONFIG=MediumBoomVecConfig -DCAC_NUM_HARTS=$(CAC_NUM_HARTS)
 CAC_LD_LIBRARY_PATH ?= $(dir $(CAC_CXX))../lib64:$(dir $(CAC_CXX))../lib
-WHISPER_LD_LIBRARY_PATH ?=
+WHISPER_TOOLCHAIN_ROOT := $(patsubst %/bin/,%,$(dir $(WHISPER_CXX)))
+WHISPER_DERIVED_LD_LIBRARY_PATH := $(if $(WHISPER_BOOST_ROOT),$(WHISPER_BOOST_ROOT)/lib,)$(if $(WHISPER_CXX),$(if $(WHISPER_BOOST_ROOT),:,)$(WHISPER_TOOLCHAIN_ROOT)/lib64:$(WHISPER_TOOLCHAIN_ROOT)/lib,)
+WHISPER_LD_LIBRARY_PATH ?= $(WHISPER_DERIVED_LD_LIBRARY_PATH)
 LOCKSTEP_LD_LIBRARY_PATH := $(CURDIR)/$(CAC_DIR)/lib:$(CAC_LD_LIBRARY_PATH)$(if $(WHISPER_LD_LIBRARY_PATH),:$(WHISPER_LD_LIBRARY_PATH),)
 WHISPER_PATH ?= vendor/whisper/build-Linux/whisper
 LOCKSTEP_WHISPER_JSON ?= $(if $(IS_DUAL_THREAD_CONFIG),config/whisper_default_mt_lockstep.json,config/whisper_default_lockstep.json)

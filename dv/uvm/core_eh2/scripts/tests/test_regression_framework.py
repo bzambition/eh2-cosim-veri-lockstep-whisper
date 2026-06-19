@@ -120,16 +120,54 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn('`uvm_info(test_name, "TEST PASSED (signature)", UVM_LOW)',
                       base_test)
 
+    def test_log_checker_accepts_interrupted_mailbox_pass_write(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "sim.log"
+            log.write_text(
+                "TRACE_COMMIT: i0=1 i1=1 at 1425000\n"
+                "MAILBOX WRITE detected at 1425000: data=000000ff\n"
+                "=================================UVM_INFO scoreboard report\n"
+                "UVM_ERROR :    0\n"
+                "UVM_FATAL :    0\n",
+                encoding="utf-8")
+
+            result = check_logs.check_sim_log(str(log), sim_returncode=0)
+
+            self.assertTrue(result.passed)
+            self.assertEqual(result.failure_mode, "NONE")
+
+    def test_log_checker_accepts_rvvi_trace_mailbox_pass_store(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "sim.log"
+            trace = Path(td) / "rvvi_trace.log"
+            log.write_text(
+                "UVM_ERROR :    0\n"
+                "UVM_FATAL :    0\n",
+                encoding="utf-8")
+            trace.write_text(
+                "0|21|8000001a|d05802b7|0|3|gpr=x5:d0580000|csr=\n"
+                "M|0|d0580000:000000ff:f\n"
+                "0|22|8000001e|0ff00313|0|3|gpr=x6:000000ff|csr=\n",
+                encoding="utf-8")
+
+            result = check_logs.check_sim_log(
+                str(log), str(trace), sim_returncode=1)
+
+            self.assertTrue(result.passed)
+            self.assertEqual(result.failure_mode, "NONE")
+
     def test_mailbox_monitor_uses_committed_lsu_store_trace(self):
         tb_top = (
             SCRIPT_DIR.parent / "tb" / "core_eh2_tb_top.sv"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("assign mailbox_trace_write = lsu_trace_store_write;",
+        self.assertIn("assign mailbox_trace_write = lsu_trace_store_write_q;",
                       tb_top)
-        self.assertIn("assign mailbox_trace_addr  = lsu_trace_store_addr;",
+        self.assertIn("assign mailbox_trace_addr  = lsu_trace_store_addr_q;",
                       tb_top)
-        self.assertIn("assign mailbox_trace_data  = {32'b0, lsu_trace_store_wdata};",
+        self.assertIn("assign mailbox_trace_data  = {32'b0, lsu_trace_store_wdata_q};",
+                      tb_top)
+        self.assertIn("lsu_trace_store_write_q <= lsu_trace_store_write;",
                       tb_top)
         self.assertIn("assign mailbox_axi_write = lsu_axi_awvalid && lsu_axi_awready;",
                       tb_top)
@@ -282,6 +320,16 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("nb_load_wen", adapter)
         self.assertIn("div_wren", adapter)
 
+    def test_mailbox_detection_uses_registered_committed_store_trace(self):
+        tb_top = (SCRIPT_DIR.parent / "tb" /
+                  "core_eh2_tb_top.sv").read_text(encoding="utf-8")
+
+        self.assertIn("lsu_trace_store_write_q", tb_top)
+        self.assertIn("mailbox_trace_write = lsu_trace_store_write_q", tb_top)
+        self.assertIn("mailbox_trace_addr  = lsu_trace_store_addr_q", tb_top)
+        self.assertIn("mailbox_trace_data  = {32'b0, lsu_trace_store_wdata_q}",
+                      tb_top)
+
     def test_adapter_surfaces_async_nets_and_bus_writes_for_dump(self):
         tb_top = (SCRIPT_DIR.parent / "tb" /
                   "core_eh2_tb_top.sv").read_text(encoding="utf-8")
@@ -313,6 +361,12 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("whisperPoke(hartId, 'c', kCsrMip", rvvi_backend)
         self.assertIn("whisperEnterDebug", rvvi_backend)
         self.assertIn("whisperExitDebug", rvvi_backend)
+
+    def test_rvvi_scoreboard_consumes_amo_memory_writes(self):
+        scoreboard_sv = (SCRIPT_DIR.parent / "common" / "rvvi_agent" /
+                         "rvvi_scoreboard.sv").read_text(encoding="utf-8")
+
+        self.assertIn("insn[6:0] == 7'h2f", scoreboard_sv)
 
     def test_testlist_marks_known_non_cosim_tests_disabled(self):
         testlist_path = SCRIPT_DIR.parent / "riscv_dv_extension" / "testlist.yaml"
@@ -2166,6 +2220,22 @@ class RegressionFrameworkTest(unittest.TestCase):
             r"(?m)^SIGNOFF_OPTS\s+\?=\s+--no-fail-on-skip-in-signoff$")
         self.assertIn("$(SIGNOFF_OPTS)", makefile)
 
+    def test_skip_in_signoff_tests_do_not_force_nonzero_exit(self):
+        summary = RegressionSummary()
+
+        passing = TestRunResult(test_name="riscv_random_instr_test",
+                                seed=1, passed=True,
+                                failure_mode="NONE")
+        summary.add_result(passing)
+
+        skipped_failure = TestRunResult(test_name="riscv_csr_test",
+                                        seed=1, passed=False,
+                                        failure_mode="TEST_FAIL")
+        skipped_failure.skip_in_signoff = True
+        summary.add_result(skipped_failure)
+
+        self.assertEqual(run_regress.regression_exit_code(summary), 0)
+
     def test_metadata_supports_ibex_style_create_metadata_op(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -2948,6 +3018,48 @@ class RegressionFrameworkTest(unittest.TestCase):
             status = yaml.safe_load(
                 (out_dir / "signoff_status.json").read_text(encoding="utf-8"))
             self.assertEqual(status["stages"]["smoke"]["source"], "report.json")
+
+    def test_signoff_refresh_uses_rvvi_trace_mailbox_pass(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report_dir = root / "archived"
+            report_dir.mkdir()
+            sim_log = report_dir / "sim_debug_1.log"
+            sim_log.write_text(
+                "UVM_ERROR :    0\n"
+                "UVM_FATAL :    0\n",
+                encoding="utf-8")
+            (report_dir / "rvvi_trace.log").write_text(
+                "0|21|8000001a|d05802b7|0|3|gpr=x5:d0580000|csr=\n"
+                "M|0|d0580000:000000ff:f\n",
+                encoding="utf-8")
+            (report_dir / "report.json").write_text(json.dumps({
+                "total": 1,
+                "passed": 1,
+                "failed": 0,
+                "tests": [{
+                    "name": "directed_debug_basic",
+                    "seed": 1,
+                    "type": "DIRECTED",
+                    "passed": True,
+                    "failure_mode": "NONE",
+                    "sim_log": str(sim_log),
+                    "sim_returncode": 1,
+                    "instructions": 0,
+                    "cycles": 10,
+                    "ipc": 0.0,
+                    "sim_time_sec": 1.0,
+                }]
+            }), encoding="utf-8")
+
+            stage = signoff.gather_stage(
+                "directed", report_dir, root / "reports", [], 0, False)
+
+            self.assertEqual(stage["total"], 1)
+            self.assertEqual(stage["passed"], 1)
+            self.assertEqual(stage["failed"], 0)
+            self.assertEqual(stage["tests"][0]["failure_mode"], "NONE")
+            self.assertEqual(stage["waivers"], [])
 
     def test_signoff_preserves_recorded_tracecmp_mismatch(self):
         with tempfile.TemporaryDirectory() as td:
