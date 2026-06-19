@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // EH2 native trace/RVFI-probe view to standard RVVI-TRACE.
 //
-// MR1 scope: publish DUT retire stream and optional offline dump.  Reference
-// model stepping and online comparison are intentionally left for MR2/MR3.
+// This is the EH2-specific boundary in the lockstep flow: it converts retire,
+// asynchronous writeback, CSR, trap, interrupt, debug, and store sideband
+// signals into the official rvviTrace interface.  The downstream scoreboard and
+// C++ checker are intentionally core-agnostic.
 
 `ifndef RVVI_NHART
 `define RVVI_NHART 1
