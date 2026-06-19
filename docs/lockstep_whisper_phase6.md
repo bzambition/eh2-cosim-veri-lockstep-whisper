@@ -133,9 +133,7 @@ c59e799..7f43eea  HEAD -> main
 远端核对：
 
 ```text
-7f43eea470a36ea06fa47e6dde6adfc44e62693f refs/heads/main
-4679ac03230f3a45553e27ea719dd9050f9fddae refs/tags/v3.0-lockstep-whisper
-7f43eea470a36ea06fa47e6dde6adfc44e62693f refs/tags/v3.0-lockstep-whisper^{}
+git ls-remote github | grep -E 'refs/heads/main|refs/tags/v3.0-lockstep-whisper'
 ```
 
-本地 `HEAD` 与 `v3.0-lockstep-whisper^{}` 均指向 `7f43eea470a36ea06fa47e6dde6adfc44e62693f`。远端 `main` 与 tag 解引用一致，发布到新仓完成。
+核验要求：远端 `refs/heads/main` 与 `refs/tags/v3.0-lockstep-whisper^{}` 解引用到同一个提交。最终发布完成后，本地 `HEAD`、本地 tag 解引用、远端 `main`、远端 tag 解引用四者一致。
