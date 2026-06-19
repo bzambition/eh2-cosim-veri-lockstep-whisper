@@ -14,4 +14,4 @@
 0xb80 0x00000000 # mcycleh: high half of mcycle.
 0xb02 0x00000000 # minstret: machine retire counter can differ around non-architectural events.
 0xb82 0x00000000 # minstreth: high half of minstret.
-0x344 0x00000000 # mip: interrupt-pending bits are driven by asynchronous IRQ injection/clear timing; Whisper config also marks mip mask=0.
+0x344 0xfffffffffffff7ff # mip: compare all pending bits except MEIP(bit 11), whose sample/clear edge is asynchronous to retire.
