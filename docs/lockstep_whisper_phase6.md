@@ -66,7 +66,35 @@ Core-agnostic grep 结果为空。
 
 ## P6.3 发布门
 
-待补最终 release signoff 结果。
+由于 P6.1 触碰了仿真路径源文件，本期执行一次 COV=1 full signoff 作为 release gate。
+
+命令：
+
+```bash
+make signoff PROFILE=full LOCKSTEP_WHISPER=1 SIMULATOR=vcs COV=1 \
+  SIGNOFF_OPTS="--no-fail-on-skip-in-signoff --timeout-s 14400" \
+  SIGNOFF_OUT=build/signoff_p63_release
+```
+
+结果：`make exit=0`，顶层 `status=PASS`。证据：
+
+- `build/signoff_p63_release/signoff_status.json`
+- `build/signoff_p63_release/signoff_report.md`
+- `build/signoff_p63_release/report.html`
+
+Stage 汇总：
+
+| Stage | Status | Total | Passed | Failed | Waivers |
+|---|---:|---:|---:|---:|---|
+| smoke | PASS | 1 | 1 | 0 | `[]` |
+| directed | PASS | 40 | 40 | 0 | `[]` |
+| cosim | PASS | 7 | 7 | 0 | `[]` |
+| riscvdv | PASS | 395 | 395 | 0 | `[]` |
+| compliance | PASS | 50 | 50 | 0 | `[]` |
+
+Coverage：line `91.19%`（gated，threshold `55.00%`），functional `69.40%`（gated，threshold `40.00%`），overall `64.03%`。assert、branch、FSM、toggle、overall 为 collected but ungated。
+
+该结果与 Phase 4 终签 stage 和 coverage 数字一致，确认 P6.1 保行为整理未造成仿真结果漂移。
 
 ## P6.4 发布
 

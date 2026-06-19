@@ -19,7 +19,7 @@
 ### 验证
 
 - RVVI-API lockstep smoke、directed、cosim、riscv-dv 和 compliance 全量 signoff 通过。
-- Phase 4 终签证据：`build/signoff_p44_masked_clean/signoff_status.json`。
+- Phase 6 发布门证据：`build/signoff_p63_release/signoff_status.json`。
 - Stage 结果：smoke 1/1、directed 40/40、cosim 7/7、riscvdv 395/395、compliance 50/50，waivers 均为 `[]`。
 - Coverage：line 91.19%、functional 69.40%，均通过 gate；overall 64.03% 为 collected but ungated。
 - 端到端牙齿已验证：临时 GPR 分歧能让真实 sim 从 PASS 变 FAIL，回退后恢复 PASS。
