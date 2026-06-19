@@ -1,75 +1,91 @@
 # 新核接入指南
 
-本文说明如何把这个功能仿真框架接到一个新 RISC-V 核。EH2 是当前已接入的第一个对象。
-权威平台说明见 `docs/index.html`；本文与其中的「新核接入」章节保持同一边界。
+本文给出把一个新 RISC-V 核接到本通用 RVVI checker 的最小 recipe。EH2 是当前仓库中已经接入并完成 signoff 的实例；实际第二核 bring-up 不在本 EH2 仓范围内，新核应在自己的仓库中复用 `vendor/cosim-arch-checker`、`vendor/rvvi` 和同一套 RVVI-API contract。
 
-## 边界原则
+## 方法学边界
 
-换核时只改三处核专属层：
+本平台的复用边界是标准 RVVI-TRACE：
 
-1. RVVI 适配器：把新核的 retire、写回、CSR、trap、store 和 hart/order 信号映射到标准 RVVI-TRACE。
-2. 参考模型：基于 Spike 建模该核的自定义 CSR、PMP/ePMP、trap、内存映射和架构扩展行为。
-3. 核配置：ISA、hart 数、reset PC、memory map、riscv-dv core setting、testlist 和 signoff profile。
+```text
+Core RTL
+  -> <core>_rvvi_adapter.sv
+  -> official rvviTrace
+  -> generic rvvi_scoreboard.sv
+  -> cosim-arch-checker / rvviApi.h
+  -> reference ISS backend
+```
 
-这些部分保持核无关：
+SV scoreboard 只是通用驱动壳：它从 `rvviTrace` 取 retire、GPR、CSR、memory 和 net 事件，调用官方 `rvviApiPkg`。真正的 PC、instruction、GPR、CSR 和 memory 比较在 cosim-arch-checker(C++) 中完成。不要把核名、CSR 语义、memory map 或 debug/irq 策略写进 checker 或 scoreboard。
 
-- vendored RVVI-TRACE 接口。
-- RVVI-TRACE dump 到 CSV 的转换器。
-- trace comparator：逐 retire 比 PC、GPR、CSR 和内存事件。
-- riscv-dv 生成与 UVM 回归脚本。
-- signoff 汇总、覆盖率收集和报告框架。
-- compliance signature 流。
+## 每核只提供三类专属件
 
-## 最小步骤
+1. **RVVI 适配器 / RVVI-TRACE adapter**
 
-1. 建立核配置目录和 Makefile 变量，确定 ISA、XLEN、hart 数、reset PC、内存窗口和工具链参数。
-2. 写 RVVI 适配器，把核内部 retire 信息转换成 `rvviTrace`。先只支持单 hart、单 retire，再扩展多发射或多 hart。
-3. 写参考模型扩展。Spike 原生支持的 ISA 不要重复建模；只补该核 PRM 规定的自定义 CSR、PMP/ePMP、trap、memory map 和非标准 reset 状态。
-4. 接入 standalone ref CSV 生成器，确保它能按 DUT hart schedule 逐步运行参考模型。
-5. 跑最小 smoke：DUT RVVI-TRACE CSV 与 ref CSV 的 PC/insn 流一致。
-6. 打开 GPR、CSR、内存事件比较，逐类增加 directed 测试。
-7. 接 riscv-dv。普通同步测试默认走 tracecmp；异步 interrupt/debug/reset 类测试只有在有 UVM agent/signature handshake 证据时才允许 `tracecmp: disabled`。
-8. 接 compliance signature。
-9. 跑 full signoff，并在文档中记录 tracecmp/agent split、覆盖率 gate、已知 skip 项和参考模型信任假设。
+   提供 `<core>_rvvi_adapter.sv`，把新核 retire/RVFI/probe 信号映射成标准 `rvviTrace`。这是唯一每核专属 UVM 件。EH2 范本是 `dv/uvm/core_eh2/common/rvvi_agent/eh2_rvvi_adapter.sv`。
 
-## signoff 口径
+2. **参考模型 / 参考 ISS 配置或后端**
 
-新核接入后，文档必须把三类结论分开写：
+   对 Whisper/VeeR-ISS 这类原生 ISS，提供该核的 `whisper.json` 或等价配置，描述 ISA、reset PC、hart、memory map 和实现相关行为。若新核不使用 Whisper，应提供实现官方 `rvviApi.h` ref 侧契约的后端。
 
-- 已验证：stage 数字、coverage 数字、pytest 或脚本单测数字，以及证据目录。
-- 未验证：`tracecmp: disabled` 的测试数量、替代 checker、`skip_in_signoff` 项和低覆盖项。
-- 范围之外：formal、LEC、综合、STA、power、physical、gate-level sim、CDC/RDC、security/side-channel、PPA 和性能。
+3. **核配置与非确定 CSR mask**
 
-`riscvdv` stage 绿不自动等于所有 riscv-dv 测试都做了逐 retire tracecmp。若有 async/debug/interrupt 测试关闭 tracecmp，
-必须在 testlist 和文档中写清替代 checker，例如 UVM agent 或 signature handshake。
+   提供 ISA、XLEN、hart 数、reset PC、memory map、testlist、signoff profile 和 `cac_csr_masks.txt`。CSR mask 只 mask 真实非确定或异步采样位，每个 mask 必须有注释依据。EH2 当前 `mip(0x344)` 只屏蔽 MEIP bit 11，其余 pending 位参与比较。
+
+## 零改复用层
+
+以下组件应零改复用：
+
+- `dv/uvm/core_eh2/common/rvvi_agent/rvvi_scoreboard.sv`：通用 RVVI-API scoreboard。
+- `vendor/cosim-arch-checker`：实现官方 `rvviApi.h` 的外部 checker。
+- `vendor/cosim-arch-checker/bridge/whisper/whisper_rvvi.cpp`：Whisper ref 后端。
+- `vendor/rvvi/include/host/rvvi/rvviApi.h` 和 `vendor/rvvi/source/host/rvvi/rvviApiPkg.sv`：官方 RVVI-API。
+- `vendor/whisper`：当前 EH2 参考 ISS 源码。
+- 回归、signoff、coverage 汇总脚本。
+
+这些层必须保持核无关；新核信息只能通过 adapter、ISS 配置、核配置或 CSR mask 进入系统。
+
+Phase 5 结构核查命令：
+
+```bash
+grep -rniE 'eh2|veer|riscv_core_setting|core_eh2' \
+  vendor/cosim-arch-checker/ \
+  dv/uvm/core_eh2/common/rvvi_agent/rvvi_scoreboard.sv \
+  vendor/rvvi/ --include=*.cpp --include=*.h --include=*.sv | grep -viE 'test|//|license'
+```
+
+预期为空。空结果表示通用 checker、scoreboard 和 RVVI API 层没有 EH2 知识。
+
+## 最小接入步骤
+
+1. 固定新核的 ISA、XLEN、hart 数、reset PC、memory map、工具链和仿真入口。
+2. 编写 `<core>_rvvi_adapter.sv`，先支持单 hart、单 retire；确认每条 retire 都有稳定 hart、order、PC、instruction 和 trap 信息。
+3. 接入 ISS 配置或后端，确认 `rvviRefInit`、`rvviRefEventStep`、`rvviRefPcGet`、`rvviRefGprGet`、`rvviRefCsrGet` 和 `rvviRefMemoryRead` 能返回参考态。
+4. 跑最小 smoke：DUT retire 流与 ref step 流在 PC/instruction 上一致。
+5. 打开 GPR、CSR、memory 比较；每一类先用 directed 测试收敛，再扩大到随机。
+6. 编写 `cac_csr_masks.txt`，只保留有架构或时序依据的 mask。
+7. 接 riscv-dv 和 directed testlist。异步 debug/irq/reset 刺激属于每核 UVM/测试范畴，不应迁入通用 checker。
+8. 跑 full signoff，并在报告中明确 stage 数字、coverage gate、skip 项、debug 状态和 ref-model 信任假设。
 
 ## EH2 已填范例
 
-| 层 | EH2 实现 | 说明 |
+| 类别 | EH2 文件 | 说明 |
 |---|---|---|
-| RVVI 适配器 | `dv/uvm/core_eh2/common/rvvi_agent/eh2_rvvi_adapter.sv` | 处理双发射 i0/i1、NHART=1/2、异步 load/div 写回、CSR 和 store sideband。 |
-| 参考模型 | `dv/cosim/spike_cosim.cc` / `.h` | 建模 EH2 自定义 CSR、PMP/ePMP、trap、DCCM、mailbox、低地址取指空洞、原子和异步写回行为。 |
-| standalone ref | `dv/cosim/spike_rvvi_main.cc` | 直接调用 `SpikeCosim` ref-only helper，生成 riscv-dv 风格 CSV。 |
-| 核配置 | `dv/uvm/core_eh2/riscv_dv_extension/riscv_core_setting.sv`、`testlist.yaml`、Makefile `CONFIG` | 配置 RV32、EH2 memory map、single/dual thread 和 signoff stage。 |
-
-EH2 当前 full profile 的真实口径：
-
-- `make signoff PROFILE=full`：PASS。
-- `riscvdv`：395/395 PASS。
-- 23/57 个 riscv-dv 测试是 `tracecmp: disabled`，由 UVM agent 或 signature handshake 验证。
-- `riscv_csr_test` 和 `riscv_csr_hazard_test` 是 `skip_in_signoff` tracked-broken，未解决且未计入 signoff。
-- coverage 只 gate line 和 functional；assert、branch、fsm、toggle、overall 当前是 collected but ungated。
+| RVVI adapter | `dv/uvm/core_eh2/common/rvvi_agent/eh2_rvvi_adapter.sv` | 处理双发射、hart/order、异步写回、CSR、trap、store sideband。 |
+| ISS 配置 | `rtl/snapshots/default/whisper.json`、`rtl/snapshots/default_mt/whisper.json` | 单 hart 与双 hart Whisper 配置。 |
+| CSR mask | `config/cac_csr_masks.txt` | 记录 counter、非确定 CSR 和 `mip` MEIP-only mask。 |
+| 通用 scoreboard | `dv/uvm/core_eh2/common/rvvi_agent/rvvi_scoreboard.sv` | 零 EH2 硬编码，调用 `rvviApiPkg`。 |
+| 通用 checker | `vendor/cosim-arch-checker` | C++ RVVI-API checker，外接 Whisper。 |
 
 ## 接入检查清单
 
-- RVVI-TRACE dump 中每条 retire 都有稳定的 hart、order、PC 和 instruction。
-- GPR 写回只报告架构上真正提交的写；被 trap/fault 抑制的写不能进入 CSV。
-- CSR 列表区分可比较、非确定、WPRI/WARL 和核自定义项；mask 必须有注释依据。
-- Store 事件只报告已提交的架构内存写；bus error、misaligned split 和 atomic 写要按架构结果处理。
-- 多 hart 时 ref CSV 按 DUT hart schedule 步进，不能假设 round-robin。
-- 异步测试若关闭 tracecmp，testlist 必须写明替代 checker。
-- signoff report 必须显示覆盖率数值以及 gated/collected but ungated 状态。
+- `rvviTrace` 中每条 retire 的 hart/order/PC/instruction 稳定且单调语义清楚。
+- GPR 写回只报告架构上真正提交的写；trap/fault 抑制的写不能进入比较。
+- CSR 写区分可比、WARL/WPRI、核自定义和非确定项；mask 必须有注释依据。
+- Store 事件只报告已提交架构内存写；byte-enable、misaligned split 和 atomic 写要按架构结果处理。
+- 多 hart 时 ref 按 DUT retire schedule 步进，不假设 round-robin。
+- Debug/irq/reset 等异步刺激在每核 UVM/test 层建模；checker 只比较同步后的架构态和经 `rvviRefNetSet` 注入的标准 net。
+- signoff report 必须区分 gated coverage 与 collected-but-ungated coverage。
 
 ## 不要改的层
 
-新核接入时，不要把核名、CSR 号或 memory map 硬编码进 trace comparator、RVVI-TRACE 转换器、signoff 聚合器或通用回归框架。发现确实需要核信息时，应把它放进核配置或参考模型，由通用层读取配置结果。
+新核接入时，不要把核名、CSR 号、memory map、debug ROM 或 interrupt controller 语义硬编码进 `rvvi_scoreboard.sv` 或 `vendor/cosim-arch-checker`。发现确实需要核信息时，把它放进 adapter、ISS 配置或 CSR mask，由通用层通过标准 RVVI-API 消费结果。
