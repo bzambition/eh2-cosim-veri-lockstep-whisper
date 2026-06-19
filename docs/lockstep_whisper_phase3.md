@@ -416,16 +416,50 @@ python3 -m pytest dv/uvm/core_eh2/scripts/tests/ -q
 
 **验收门：** 终签 exit 0；反作弊 + core-agnostic + 绝对路径全绿；复现脚本出 smoke 1/1；报告 commit。
 
+**执行记录（2026-06-19）：通过。**
+
+- 复现入口：新增 `scripts/bootstrap_lockstep.sh`。脚本从本地
+  `env.mk` 读取机器变量，串起 `make whisper`、`make cac`、
+  `make smoke LOCKSTEP_WHISPER=1`，脚本内无 `/home/...` 机器路径。
+  本机验证输出 smoke `Total: 1 | Passed: 1 | Failed: 0`，
+  证据：`build/smoke_vcs/report.json`。
+- `env.mk.example` 已改为 lockstep-only 口径，示例变量为
+  `CAC_CXX`、`WHISPER_CXX`、`WHISPER_BOOST_ROOT`、`NC_INSTALL` 等；
+  不再保留旧 Spike `SPIKE_CXX` 描述。
+- 终签复用 P3.6 的 `build/signoff_vcs/signoff_status.json`：
+  P3.7 只新增复现脚本和文档/示例变量，不影响仿真结果，遵守
+  “昂贵流程不冗余重跑”。终签状态为 `PASS`，五个 stage 为
+  smoke `1/1`、directed `40/40`、cosim `7/7`、
+  riscvdv `395/395`、compliance `50/50`，无 blocker、无 waiver。
+- 反作弊核查：
+  `git diff 72c50d6 -- dv/uvm/core_eh2/riscv_dv_extension/testlist.yaml dv/uvm/core_eh2/directed_tests/directed_testlist.yaml`
+  无输出；`git diff --name-only 72c50d6..HEAD | grep '^rtl/' | grep -v snapshots || echo OK`
+  输出 `OK`；`find . -path ./.git -prune -o -type l -print`
+  无输出（VCS 生成的 build symlink 已删除）。
+- core-agnostic 核查：
+  `grep -rniE 'eh2|veer' vendor/cosim-arch-checker/ --include='*.cpp' --include='*.h' | grep -viE 'test|//|VeeR-ISS|VeeR ISS|Whisper'`
+  无输出。CAC/scoreboard 不焊 EH2 目录结构；用户指出的
+  `whisper_rvvi.cpp` 默认 JSON 路径已不在 CAC 内，默认配置位于
+  Makefile/SV plusarg/env 侧。
+- tracked 源绝对路径核查：
+  `grep -rnE '/home/(host|cadence|Xilinx)|toolchains/' ... dv/ config/ scripts/ Makefile | grep -v snapshots`
+  无输出。
+- checker 牙齿：`make -C vendor/cosim-arch-checker test CC=/home/Xilinx/Vivado/2019.1/tps/lnx64/gcc-6.2.0/bin/g++`
+  在正确运行库环境下 exit 0，输出包含故意注入的
+  `CSR[0x7c0]`、`CSR[0xb00]` 与 MEM mismatch，证明非 mask CSR/内存比较仍有牙齿。
+- 脚本单测：`python3 -m pytest dv/uvm/core_eh2/scripts/tests/ -q`
+  输出 `154 passed, 1 skipped, 1 warning`。
+
 ---
 
 ## 最终验收清单
 
-- [ ] CAC 实现 `rvviApi.h`（SV 只调 `rvviApiPkg`，无 SV-facing `monitor_*`）
-- [ ] Whisper 作 RVVI-API 参考后端（`whisper_rvvi`）；Spike/offline 全删、grep 无活引用
-- [ ] 通用 `rvvi_scoreboard.sv` 零 EH2；CAC 零 EH2（grep 空）——每核唯一专属件 = adapter
-- [ ] smoke/cosim/riscvdv/双hart 经 RVVI-API 路 PASS；干净 `make signoff` COV=1 exit 0、无 exit-code waiver、覆盖率 gated
-- [ ] debug：promote 或 downgrade（措辞合规）
-- [ ] 未改 RTL、未放水 testlist、无 symlink、无绝对路径泄漏、未 push/未并 master
+- [x] CAC 实现 `rvviApi.h`（SV 只调 `rvviApiPkg`，无 SV-facing `monitor_*`）。
+- [x] Whisper 作 RVVI-API 参考后端（`whisper_rvvi`）；Spike/offline 全删，grep 无活引用。
+- [x] 通用 `rvvi_scoreboard.sv` 零 EH2；CAC 零 EH2（grep 空）——每核唯一专属件 = adapter。
+- [x] smoke/cosim/riscvdv/双 hart 经 RVVI-API 路 PASS；干净 `make signoff` COV=1 exit 0、无 exit-code waiver、覆盖率 gated。
+- [x] debug：downgrade，主动 server command 注入已设计但未闭合；默认在线 lockstep 兜底 PASS，措辞合规。
+- [x] 未改 RTL 设计、未放水 testlist、无 symlink、无绝对路径泄漏、未 push/未并 master。
 
 ## 范围之外
 
