@@ -1173,8 +1173,8 @@ class RegressionFrameworkTest(unittest.TestCase):
         root = SCRIPT_DIR.parents[3]
         makefile = (root / "Makefile").read_text(encoding="utf-8")
 
-        self.assertIn("compile_vcs: cac", makefile)
-        self.assertIn("compile_nc: cac", makefile)
+        self.assertRegex(makefile, r"(?m)^compile_vcs:[^\n]*\bcac\b")
+        self.assertRegex(makefile, r"(?m)^compile_nc:[^\n]*\bcac\b")
         self.assertIn("$(CURDIR)/$(LIBCAC_COSIM)", makefile)
         self.assertNotIn("$(LIB" + "COSIM)", makefile)
         self.assertNotIn("NO_" + "COSIM", makefile)

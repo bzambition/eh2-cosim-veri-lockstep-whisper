@@ -47,7 +47,8 @@ SHARED_F     := $(TB_DIR)/eh2_shared.f
 TB_F         := $(TB_DIR)/eh2_tb.f
 
 # clean 默认保留清单（删了要重跑数小时 / 签发证据）
-CLEAN_PRESERVE_BUILD := r3b_final r4a_final nightly compliance_tb_compile.log
+CLEAN_PRESERVE_BUILD := r3b_final r4a_final nightly compliance_tb_compile.log \
+                        signoff_p63_release signoff_p44_masked_clean signoff_release
 CLEAN_PRESERVE_FIND  := $(foreach n,$(CLEAN_PRESERVE_BUILD),! -name '$(n)') ! -name 'archive_signoffs_*'
 
 # ============================================================
@@ -129,40 +130,266 @@ TESTLIST_PATH := $(if $(filter directed,$(TESTLIST)),$(TB_DIR)/directed_tests/di
 # ============================================================
 # .PHONY
 # ============================================================
-.PHONY: help asm whisper cac compile compile_vcs compile_nc \
+.PHONY: help asm whisper cac check_nc_env compile compile_vcs compile_nc \
         smoke regress compliance watch_wave signoff clean
 
 # ============================================================
-# help（精简版；完整文档待补）
+# help
 # ============================================================
 define HELP_TEXT
 
-EH2 Cosim 验证平台 — Makefile 入口（cosim-only 精简版）
-默认仿真器 = VCS；NC/irun 为备选（SIMULATOR=nc）。产物隔离在 build/<target>_<simulator>/。
-机器相关路径在 env.mk 设置（参考 env.mk.example）。
+EH2 Cosim 验证平台 — 顶层 Makefile 使用说明
 
-[ 验证主线 ]
-  make signoff            cosim sign-off（默认 PROFILE=full：smoke/directed/cosim/riscvdv/compliance + 覆盖率）
-                          变量：SIMULATOR=vcs|nc  PROFILE=full|cosim|quick  GATE_ONLY=0|1  COV=0|1  PARALLEL=N
-  make smoke              1 个冒烟测试（自动 compile+asm），<2 分钟
-  make regress            回归；TESTLIST=riscvdv|directed|cosim  TEST=<单测>  ITERATIONS=N  PARALLEL=N
-  make compliance         RISC-V compliance 套件；SUITE=run|all|compile
+定位：
+  这是 RVVI-API + Whisper lockstep 协同验证平台的顶层入口。
+  默认使用 VCS；NC/irun 为备选。机器相关路径只放在 env.mk。
 
-[ 构建 ]
-  make asm                编译 tests/asm/*.S → hex/elf/dis
-  make whisper            在 vendor/whisper 内构建 VeeR-ISS server
-  make cac                编译 cosim-arch-checker / Whisper DPI 库
-  make compile            编译 UVM testbench（SIMULATOR=vcs→simv / nc→INCA_libs）；COV=0|1  WAVES=0|1
+第一次使用：
+  1. cp env.mk.example env.mk
+  2. 编辑 env.mk，至少设置：
+       CAC_CXX             C++17 g++，用于构建 cosim-arch-checker DPI
+       WHISPER_CXX         C++17 g++，用于构建 vendor/whisper
+       WHISPER_BOOST_ROOT  Boost 安装根目录
+       NC_INSTALL          Incisive/irun 路径，提供 svdpi.h 与 UVM-1.2
+       VCS_HOME            可选，作为 svdpi.h fallback
+       RISCV_PREFIX        可选，默认 riscv32-unknown-elf-
+  3. make whisper
+  4. make cac
+  5. make smoke LOCKSTEP_WHISPER=1
 
-[ 看波形 / 清理 ]
-  make watch_wave TEST=<n>  看波形 —— 三形式 / 两模式：
-                          MODE=batch(默认,跑完离线看)：SIMULATOR=vcs→Verdi ；SIMULATOR=nc→SimVision
-                          MODE=live (NC 边仿真边看，ncsim+SimVision GUI；需 X11)
-  make clean              清产物，默认保留签发证据+缓存；SCOPE=full|build|cov|vcs|nc|asm|docs  FORCE=1 彻底删  MODE=archive 归档
+Target 总览：
+  make help
+      打印本帮助，不构建、不仿真。
 
-[ 常用变量 ]
-  SIMULATOR=vcs|nc   COV=0|1   WAVES=0|1   PARALLEL=N   SEED=N   SIM_OPTS="<plusargs>"
-  TESTLIST=riscvdv|directed|cosim   PROFILE=full|cosim|quick   GATE_ONLY=0|1
+  make asm
+      编译 tests/asm/*.S，生成 smoke 等手写测试的 .elf/.hex/.dis。
+      常见用途：
+        make asm
+        make clean SCOPE=asm && make asm
+
+  make whisper
+      在 vendor/whisper 内构建 VeeR-ISS/Whisper server。
+      依赖 env.mk 中的 WHISPER_CXX 与 WHISPER_BOOST_ROOT。
+      产物：
+        vendor/whisper/build-Linux/whisper
+      示例：
+        make whisper
+        make whisper WHISPER_CXX=<gcc9-root>/bin/g++ WHISPER_BOOST_ROOT=<boost-root>
+
+  make cac
+      构建 cosim-arch-checker DPI 库 libcosim.so，内含 RVVI-API facade
+      和 Whisper 后端。
+      关键变量：
+        CAC_CXX            C++17 编译器，默认 g++
+        CAC_NUM_HARTS      checker hart 数，默认随 CONFIG 推导
+        CAC_CXXFLAGS       传给 CAC 构建的 C++ flags
+      产物：
+        vendor/cosim-arch-checker/lib/libcosim.so
+      示例：
+        make cac CAC_CXX=$$CAC_CXX
+        make -C vendor/cosim-arch-checker test CC=$$CAC_CXX
+
+  make compile
+      编译 RTL + UVM testbench。不会运行测试。
+      SIMULATOR=vcs 时调用 compile_vcs，生成 build/compile_vcs/simv。
+      SIMULATOR=nc  时调用 compile_nc，生成 build/compile_nc/INCA_libs。
+      关键变量：
+        SIMULATOR=vcs|nc   选择仿真器，默认 vcs
+        CONFIG=default|dual_thread|default_mt
+                            default 为 1 hart；dual_thread/default_mt 为 2 hart
+        COV=0|1             是否编译覆盖率，默认 1
+        WAVES=0|1           是否保留波形相关编译能力，默认 0
+        BUILD_SUBDIR=dir    覆盖编译产物目录
+      示例：
+        make compile SIMULATOR=vcs COV=0
+        make compile SIMULATOR=nc COV=0
+        make compile CONFIG=dual_thread BUILD_SUBDIR=build/compile_dual_vcs
+
+  make compile_vcs
+      明确走 VCS 编译入口。通常直接用 make compile SIMULATOR=vcs。
+      示例：
+        make compile_vcs COV=0 BUILD_SUBDIR=build/my_vcs
+
+  make compile_nc
+      明确走 NC/irun 编译入口。通常直接用 make compile SIMULATOR=nc。
+      依赖 env.mk 中的 NC_INSTALL。
+      示例：
+        make compile_nc COV=0 BUILD_SUBDIR=build/my_nc
+
+  make smoke
+      最小冒烟：自动 make asm、make compile，然后运行 tests/asm/smoke。
+      默认启用 LOCKSTEP_WHISPER=1，经 RVVI-API scoreboard + CAC + Whisper 比对。
+      关键变量：
+        SIMULATOR=vcs|nc
+        COV=0|1
+        WAVES=0|1
+        SIM_OPTS="<plusargs>"     追加传给仿真的 plusargs
+        LOCKSTEP_WHISPER=0|1      是否启用 Whisper lockstep，默认 1
+      示例：
+        make smoke LOCKSTEP_WHISPER=1 SIMULATOR=vcs COV=0
+        make smoke SIM_OPTS="+rvvi_debug_poke" COV=0
+        make smoke CONFIG=dual_thread SIM_OPTS="+rvvi_nhart=2" COV=0
+
+  make regress
+      跑 testlist 回归：directed、cosim 或 riscvdv。
+      会先编译 build/regress_<simulator>/。
+      关键变量：
+        TESTLIST=riscvdv|directed|cosim
+                            默认 riscvdv
+        TEST=<name>         只跑单个测试；为空则跑整个 testlist
+        ITERATIONS=N        覆盖 testlist 中的迭代数
+        SEED=N              起始 seed，默认 1
+        PARALLEL=N          并行数，默认 4
+        OUT=dir             覆盖结果输出目录
+        SIM_OPTS="<args>"   追加仿真 plusargs
+        COV=0|1             是否收覆盖率
+        WAVES=0|1           是否 dump 波形
+      示例：
+        make regress TESTLIST=cosim COV=0 PARALLEL=1 OUT=build/cosim_smoke
+        make regress TESTLIST=directed TEST=hello_world COV=0
+        make regress TESTLIST=riscvdv TEST=riscv_interrupt_test ITERATIONS=3 PARALLEL=1 COV=0 OUT=build/irq
+        make regress TESTLIST=riscvdv PARALLEL=8 COV=1
+        make regress CONFIG=dual_thread TESTLIST=cosim OUT=build/dual_cosim
+
+  make compliance
+      跑 vendored riscv-tests compliance 套件。
+      关键变量：
+        SUITE=run|all|compile
+          run 或空：默认 compliance 子集
+          all：      compliance-all
+          compile：  只编译 compliance 测试，不跑仿真
+        RISCV_PREFIX          RISC-V GCC 前缀，默认 riscv32-unknown-elf-
+        RISCV_TESTS_FW        riscv-tests 根目录，默认 vendor/riscv-tests
+        RISCV_COMPLIANCE_FW   compliance framework 根目录，默认同 RISCV_TESTS_FW
+        SIMULATOR=vcs|nc
+      示例：
+        make compliance SIMULATOR=vcs
+        make compliance SUITE=all SIMULATOR=vcs
+        make compliance SUITE=compile RISCV_PREFIX=<riscv-toolchain>/bin/riscv32-unknown-elf-
+
+  make watch_wave TEST=<name>
+      跑 tests/asm/<TEST>.hex 并打开波形。
+      TEST 必填，读取 tests/asm/<TEST>.hex 与 tests/asm/<TEST>.elf。
+      模式：
+        MODE=batch 或空：
+          离线跑完再看波形。
+          SIMULATOR=vcs 打开 Verdi FSDB；SIMULATOR=nc 打开 SimVision SHM。
+        MODE=live：
+          NC/irun GUI 边仿真边看，需 X11。
+      关键变量：
+        TEST=<name>       必填，例如 smoke
+        SIMULATOR=vcs|nc  batch 模式有效
+        TIMEOUT_NS=N      live 模式超时，默认 10000000
+        SIM_OPTS="<args>" batch 模式追加 plusargs
+      示例：
+        make watch_wave TEST=smoke SIMULATOR=vcs
+        make watch_wave TEST=smoke SIMULATOR=nc
+        make watch_wave TEST=smoke MODE=live
+
+  make signoff
+      签核入口。默认 PROFILE=full，包含 smoke、directed、cosim、
+      riscvdv、compliance，并在 COV=1 时 gate line/functional coverage。
+      关键变量：
+        PROFILE=quick|cosim|riscvdv_smoke|nightly|full
+          quick：        smoke + directed
+          cosim：        smoke + cosim
+          riscvdv_smoke：riscvdv stage
+          nightly：      smoke + directed + cosim + riscvdv
+          full：         smoke + directed + cosim + riscvdv + compliance
+        SIMULATOR=vcs|nc
+        COV=0|1
+        PARALLEL=N
+        SEED=N
+        SIGNOFF_OUT=dir
+        SIGNOFF_ITERATIONS=N
+                            覆盖非 smoke stage 的每测试迭代数
+        GATE_ONLY=0|1       只评估已有 stage 结果，不重新跑仿真
+        SIGNOFF_OPTS="..."  透传给 signoff.py
+        SIGNOFF_MIN_LINE_COV=N
+        SIGNOFF_MIN_FUNCTIONAL_COV=N
+        SIGNOFF_ALLOW_WARNINGS=0|1
+        CLEANUP=0|1         signoff 后清理 .lck 等临时文件
+      示例：
+        make signoff PROFILE=full LOCKSTEP_WHISPER=1 SIMULATOR=vcs COV=1 SIGNOFF_OUT=build/signoff_release
+        make signoff PROFILE=cosim COV=0 PARALLEL=1 SIGNOFF_OUT=build/signoff_cosim
+        make signoff PROFILE=quick COV=0 SIGNOFF_ITERATIONS=1
+        make signoff GATE_ONLY=1 SIGNOFF_OUT=build/signoff_release
+        make signoff PROFILE=full COV=1 SIGNOFF_OPTS="--no-fail-on-skip-in-signoff --timeout-s 14400"
+
+  make clean
+      清理可再生产物。默认保留长耗时缓存和签发证据。
+      关键变量：
+        SCOPE=full|build|cov|vcs|nc|asm|docs
+          full：  默认，清 build 可再生产物、asm 产物、常见仿真临时文件
+          build： 清 build/ 下可再生产物，保留保护项
+          cov：   只清覆盖率数据库
+          vcs：   只清 build/*_vcs
+          nc：    只清 build/*_nc
+          asm：   只清 tests/asm 产物
+          docs：  只清 docs/build
+        FORCE=0|1           1 表示连保护项一起删除，谨慎使用
+        MODE=delete|archive 默认 delete；archive 调 scripts/clean_workspace.sh
+        DRY_RUN=0|1         MODE=archive 时预览
+      示例：
+        make clean
+        make clean SCOPE=cov
+        make clean SCOPE=vcs
+        make clean SCOPE=build FORCE=1
+        make clean MODE=archive DRY_RUN=1
+
+常用变量速查：
+  CONFIG=default|dual_thread|default_mt
+      选择 RTL snapshot 和 hart 数。dual_thread/default_mt 会使用
+      rtl/snapshots/default_mt，并令 RVVI_NHART=2。
+
+  LOCKSTEP_WHISPER=0|1
+      默认 1。为 1 时仿真 plusargs 自动包含：
+        +cosim_arch_checker
+        +whisper_path=$(WHISPER_PATH)
+        +whisper_json_path=$(WHISPER_JSON)
+      同时设置 CAC_CSR_MASK_FILE 与 LD_LIBRARY_PATH。
+
+  WHISPER_PATH=path
+      Whisper 可执行文件路径，默认 vendor/whisper/build-Linux/whisper。
+
+  WHISPER_JSON=path
+      Whisper 配置 JSON。LOCKSTEP_WHISPER=1 时默认使用：
+        default：     config/whisper_default_lockstep.json
+        dual_thread： config/whisper_default_mt_lockstep.json
+
+  CAC_CSR_MASK_FILE=path
+      CAC CSR mask 文件，默认 config/cac_csr_masks.txt。
+
+  SIM_OPTS="<plusargs>"
+      追加仿真 plusargs。示例：
+        SIM_OPTS="+rvvi_debug_poke"
+        SIM_OPTS="+rvvi_nhart=2"
+
+推荐工作流：
+  # 一次性准备
+  cp env.mk.example env.mk
+  $$EDITOR env.mk
+  make whisper
+  make cac
+
+  # 快速确认平台可用
+  make smoke LOCKSTEP_WHISPER=1 SIMULATOR=vcs COV=0
+
+  # 跑核心 cosim directed
+  make regress TESTLIST=cosim LOCKSTEP_WHISPER=1 COV=0 PARALLEL=1 OUT=build/cosim
+
+  # 跑一个 riscv-dv 测试
+  make regress TESTLIST=riscvdv TEST=riscv_interrupt_test ITERATIONS=3 COV=0 OUT=build/irq
+
+  # 发布级签核
+  make signoff PROFILE=full LOCKSTEP_WHISPER=1 SIMULATOR=vcs COV=1 \
+    SIGNOFF_OPTS="--no-fail-on-skip-in-signoff --timeout-s 14400" \
+    SIGNOFF_OUT=build/signoff_release
+
+更多背景：
+  docs/architecture.md       架构与数据流
+  docs/onboarding.md         接入新核 recipe
+  docs/lockstep_whisper_phase6.md  最新发布证据
 
 endef
 export HELP_TEXT
@@ -195,6 +422,9 @@ WHISPER_JSON ?= $(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_WHISPER_JSON),$(
 CAC_CSR_MASK_FILE ?= config/cac_csr_masks.txt
 LOCKSTEP_CSR_MASK_FILE := $(CURDIR)/$(CAC_CSR_MASK_FILE)
 LOCKSTEP_SIM_OPTS := +cosim_arch_checker +whisper_path=$(WHISPER_PATH) +whisper_json_path=$(WHISPER_JSON)
+SIM_ENV := CAC_CSR_MASK_FILE=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_CSR_MASK_FILE),) \
+           NC_INSTALL=$(NC_INSTALL) NC_UVM_HOME=$(NC_UVM_HOME) \
+           LD_LIBRARY_PATH=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_LD_LIBRARY_PATH):,)$$LD_LIBRARY_PATH
 
 RISCV_PREFIX   ?= riscv32-unknown-elf-
 RISCV_TESTS_FW ?= $(CURDIR)/vendor/riscv-tests
@@ -234,6 +464,20 @@ asm:
 # ============================================================
 compile: compile_$(SIMULATOR)
 
+check_nc_env:
+	@test -n "$(NC_INSTALL)" || { \
+	  echo "ERROR: SIMULATOR=nc 需要在 env.mk 设置 NC_INSTALL=<Incisive安装根目录>。"; \
+	  echo "       当前 NC_INSTALL 为空，导致 NC_UVM_HOME 展开为 $(NC_UVM_HOME)。"; \
+	  echo "       可用 'which irun' 找到 irun，再取其上层安装根目录写入 env.mk。"; \
+	  exit 1; \
+	}
+	@test -d "$(NC_UVM_HOME)" || { \
+	  echo "ERROR: NC_UVM_HOME 不存在：$(NC_UVM_HOME)"; \
+	  echo "       请检查 env.mk 中 NC_INSTALL 是否指向 Incisive 安装根目录。"; \
+	  echo "       若本机 UVM 目录不在默认位置，可直接设置 NC_UVM_HOME=<UVM-1.2目录>。"; \
+	  exit 1; \
+	}
+
 compile_vcs: cac | $(BUILD_DIR)
 	@echo "=== [compile] VCS UVM testbench (BUILD_SUBDIR=$(BUILD_SUBDIR)) ==="
 	@mkdir -p $(BUILD_SUBDIR)
@@ -257,7 +501,7 @@ compile_vcs: cac | $(BUILD_DIR)
 	  $(if $(filter 1,$(COV)),$(VCS_COMPILE_COV_OPTS),)
 	@echo "=== [compile] simv 完成: $(BUILD_SUBDIR)/simv ==="
 
-compile_nc: cac | $(BUILD_DIR)
+compile_nc: check_nc_env cac | $(BUILD_DIR)
 	@echo "=== [compile] NC (irun) UVM testbench (BUILD_SUBDIR=$(BUILD_SUBDIR)) ==="
 	@mkdir -p $(BUILD_SUBDIR)
 	$(IRUN) -64bit -uvmhome $(NC_UVM_HOME) -sv -assert \
@@ -285,7 +529,7 @@ compile_nc: cac | $(BUILD_DIR)
 smoke: asm
 	@$(MAKE) --no-print-directory compile BUILD_SUBDIR=$(BUILD_DIR)/smoke_$(SIMULATOR)
 	@echo "=== [smoke] 运行 smoke 测试 ==="
-	CAC_CSR_MASK_FILE=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_CSR_MASK_FILE),) LD_LIBRARY_PATH=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_LD_LIBRARY_PATH):,)$$LD_LIBRARY_PATH python3 $(SCRIPTS_DIR)/run_regress.py \
+	$(SIM_ENV) python3 $(SCRIPTS_DIR)/run_regress.py \
 	  --test smoke --binary $(ASM_DIR)/smoke.hex \
 	  --simulator $(SIMULATOR) --seed 1 \
 	  --rtl-test core_eh2_base_test \
@@ -299,7 +543,7 @@ smoke: asm
 regress:
 	@$(MAKE) --no-print-directory compile BUILD_SUBDIR=$(BUILD_DIR)/regress_$(SIMULATOR)
 	@echo "=== [regress] testlist=$(TESTLIST) parallel=$(PARALLEL) iter=$(if $(ITERATIONS),$(ITERATIONS),testlist) ==="
-	CAC_CSR_MASK_FILE=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_CSR_MASK_FILE),) LD_LIBRARY_PATH=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_LD_LIBRARY_PATH):,)$$LD_LIBRARY_PATH python3 $(SCRIPTS_DIR)/run_regress.py \
+	$(SIM_ENV) python3 $(SCRIPTS_DIR)/run_regress.py \
 	  $(if $(TEST),--test $(TEST) --testlist $(TESTLIST_PATH),--testlist $(TESTLIST_PATH)) \
 	  --simulator $(SIMULATOR) --seed $(SEED) \
 	  $(if $(ITERATIONS),--iterations $(ITERATIONS),) --parallel $(PARALLEL) \
@@ -333,11 +577,11 @@ compliance:
 #   TEST 必填（读 tests/asm/<TEST>.hex）
 # ============================================================
 ifeq ($(MODE),live)
-watch_wave: asm cac
+watch_wave: check_nc_env asm cac
 	@if [ -z "$(TEST)" ]; then echo "ERROR: 必须指定 TEST=<name>，例：make watch_wave TEST=smoke MODE=live"; exit 1; fi
 	@echo "=== [watch_wave] 形式③ NC 边仿真边看 TEST=$(TEST)（需 X11 forwarding）==="
 	@mkdir -p $(BUILD_DIR)/watch_$(TEST)_nc/$(TEST)_s1
-	irun -64bit -uvmhome $(NC_UVM_HOME) -sv -assert \
+	$(SIM_ENV) irun -64bit -uvmhome $(NC_UVM_HOME) -sv -assert \
 	  -vlog_ext +.vh +define+UVM_NO_DEPRECATED +define+GTLSIM \
 	  +define+RVVI_NHART=$(RVVI_NHART) \
 	  $(DEFINES) +incdir+$(SNAPSHOTS) $(SNAPSHOTS)/eh2_pdef.vh \
@@ -350,6 +594,7 @@ watch_wave: asm cac
 	  +UVM_TESTNAME=core_eh2_base_test +bin=$(ASM_DIR)/$(TEST).hex \
 	  +seed=1 +timeout_ns=$(TIMEOUT_NS) \
 	  +rvvi_elf=$(ASM_DIR)/$(TEST).elf \
+	  $(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_SIM_OPTS) +whisper_server_file=$(BUILD_DIR)/watch_$(TEST)_nc/$(TEST)_s1/whisper_connect,) \
 	  -l $(BUILD_DIR)/watch_$(TEST)_nc/$(TEST)_s1/sim.log \
 	  -gui -input $(TB_DIR)/nc_waves_interactive.tcl
 	@echo "=== [watch_wave] live 退出 ==="
@@ -358,13 +603,16 @@ watch_wave: asm
 	@if [ -z "$(TEST)" ]; then echo "ERROR: 必须指定 TEST=<name>，例：make watch_wave TEST=smoke"; exit 1; fi
 	@echo "=== [watch_wave] 形式①/② 离线 dump+查看 SIMULATOR=$(SIMULATOR) TEST=$(TEST) ==="
 	@$(MAKE) --no-print-directory compile BUILD_SUBDIR=$(BUILD_DIR)/watch_$(TEST)_$(SIMULATOR) WAVES=1
-	python3 $(SCRIPTS_DIR)/run_regress.py \
+	$(SIM_ENV) python3 $(SCRIPTS_DIR)/run_regress.py \
 	  --test $(TEST) --binary $(ASM_DIR)/$(TEST).hex \
 	  --simulator $(SIMULATOR) --seed 1 --rtl-test core_eh2_base_test \
-	  --sim-opts "$(SIM_OPTS) +rvvi_elf=$(ASM_DIR)/$(TEST).elf +rvvi_trace_file=$(BUILD_DIR)/watch_$(TEST)_$(SIMULATOR)/$(TEST)_s1/rvvi_trace.log" \
+	  --sim-opts "$(SIM_OPTS) $(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_SIM_OPTS) +whisper_server_file=$(BUILD_DIR)/watch_$(TEST)_$(SIMULATOR)/$(TEST)_s1/whisper_connect,) +rvvi_elf=$(ASM_DIR)/$(TEST).elf +rvvi_trace_file=$(BUILD_DIR)/watch_$(TEST)_$(SIMULATOR)/$(TEST)_s1/rvvi_trace.log" \
 	  --build-dir $(BUILD_DIR)/watch_$(TEST)_$(SIMULATOR) \
 	  --output $(BUILD_DIR)/watch_$(TEST)_$(SIMULATOR) --waves
 	@if [ "$(SIMULATOR)" = "vcs" ]; then \
+	  if [ ! -f $(BUILD_DIR)/watch_$(TEST)_vcs/$(TEST)_s1/waves.fsdb ] && [ -f novas.fsdb ]; then \
+	    mv novas.fsdb $(BUILD_DIR)/watch_$(TEST)_vcs/$(TEST)_s1/waves.fsdb; \
+	  fi; \
 	  echo "启动 Verdi 看 FSDB..."; \
 	  verdi -ssf $(BUILD_DIR)/watch_$(TEST)_vcs/$(TEST)_s1/waves.fsdb & \
 	else \
@@ -382,12 +630,13 @@ signoff:
 	@$(if $(filter 1,$(GATE_ONLY)),,$(MAKE) --no-print-directory asm)
 	@$(if $(filter 1,$(GATE_ONLY)),,$(MAKE) --no-print-directory compile BUILD_SUBDIR=$(SIGNOFF_OUT) COV=$(COV))
 	@echo "=== [signoff] profile=$(PROFILE) gate_only=$(GATE_ONLY) out=$(SIGNOFF_OUT) ==="
-	CAC_CSR_MASK_FILE=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_CSR_MASK_FILE),) LD_LIBRARY_PATH=$(if $(filter 1,$(LOCKSTEP_WHISPER)),$(LOCKSTEP_LD_LIBRARY_PATH):,)$$LD_LIBRARY_PATH python3 $(SCRIPTS_DIR)/signoff.py \
+	$(SIM_ENV) python3 $(SCRIPTS_DIR)/signoff.py \
 	  --profile $(PROFILE) --simulator $(SIMULATOR) \
 	  --seed $(SEED) --parallel $(PARALLEL) --output $(SIGNOFF_OUT) \
 	  $(if $(filter 1,$(GATE_ONLY)),--gate-only,) \
 	  $(if $(SIGNOFF_ITERATIONS),--iterations $(SIGNOFF_ITERATIONS),) \
 	  $(if $(filter 1,$(COV)),--coverage --min-line-coverage $(SIGNOFF_MIN_LINE_COV) --min-functional-coverage $(SIGNOFF_MIN_FUNCTIONAL_COV),) \
+	  $(if $(filter 1,$(COV)),,--no-require-coverage --min-line-coverage 0 --min-functional-coverage 0) \
 	  $(if $(filter 1,$(SIGNOFF_ALLOW_WARNINGS)),--allow-warnings,) \
 	  $(if $(filter 1,$(LOCKSTEP_WHISPER)),--lockstep-whisper --whisper-path $(WHISPER_PATH) --whisper-json $(WHISPER_JSON),) \
 	  $(if $(filter 1,$(WAVES)),--waves,) \

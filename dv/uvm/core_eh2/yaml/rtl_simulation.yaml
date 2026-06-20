@@ -97,9 +97,9 @@ xlm:
 # All coverage runs through the VCS path. See cover.cfg for the Ibex-aligned
 # VCS coverage configuration.
 #
-# Single-step model: each `sim.cmd` invocation runs the full irun pipeline
-# (parse + elab + sim) but irun's incremental compile reuses INCA_libs from
-# prior runs, so per-test elaboration is sub-second after the first warm-up.
+# Run model: `compile.cmd` elaborates INCA_libs once; `sim.cmd` uses `irun -R`
+# against that snapshot and only passes per-test plusargs.  This keeps the
+# filelist/package ordering identical to the top-level compile_nc path.
 # ---------------------------------------------------------------------------
 nc:
   compile:
@@ -129,17 +129,8 @@ nc:
   sim:
     cmd: >
       irun -64bit -uvmhome <nc_uvm_home>
-      -sv -assert -vlog_ext +.vh
-      +define+UVM_NO_DEPRECATED +define+GTLSIM
-      <eh2_root>/rtl/snapshots/default/common_defines.vh
-      +incdir+<eh2_root>/rtl/snapshots/default
-      +incdir+<tb_dir>/common/axi4_agent
-      +incdir+<tb_dir>/common/trace_agent
-      +incdir+<tb_dir>/common/irq_agent
-      +incdir+<tb_dir>/common/jtag_agent
-      -f <tb_dir>/eh2_rtl.f -f <tb_dir>/eh2_shared.f -f <tb_dir>/eh2_tb.f
-      -top core_eh2_tb_top -nclibdirname <build_dir>/INCA_libs
-      -access +rwc -timescale 1ns/1ps -errormax 500
+      -R
+      -nclibdirname <build_dir>/INCA_libs
       -sv_lib <eh2_root>/vendor/cosim-arch-checker/lib/libcosim.so
       +UVM_TESTNAME=<rtl_test>
       +bin=<binary>
