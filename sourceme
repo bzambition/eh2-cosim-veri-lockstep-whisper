@@ -1,0 +1,119 @@
+# shellcheck shell=bash
+#
+# Source this file before running the EH2 lockstep flow:
+#
+#   source /path/to/eh2-cosim-veri-lockstep-whisper/sourceme
+#
+# Expected extracted bundle layout:
+#
+#   <bundle-root>/
+#     eh2-cosim-veri-lockstep-whisper/
+#     toolchains/
+#     gcc-riscv64-unknown-elf/
+#     bin/
+#     lib/
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  echo "ERROR: this file must be sourced, not executed."
+  echo "Use: source $0"
+  exit 1
+fi
+
+export LC_ALL=C
+export LANG=C
+
+_eh2_prepend_path() {
+  local _var="$1"
+  local _dir="$2"
+  [[ -n "$_dir" && -d "$_dir" ]] || return 0
+  case ":${!_var:-}:" in
+    *":$_dir:"*) ;;
+    *) export "$_var=$_dir${!_var:+:${!_var}}" ;;
+  esac
+}
+
+_eh2_realpath_dir() {
+  local _dir="$1"
+  cd "$_dir" >/dev/null 2>&1 && pwd -P
+}
+
+export EH2_PROJ_ROOT="$(_eh2_realpath_dir "$(dirname "${BASH_SOURCE[0]}")")"
+
+if [[ -z "${EH2_BUNDLE_ROOT:-}" ]]; then
+  if [[ -d "$EH2_PROJ_ROOT/../toolchains" &&
+        -d "$EH2_PROJ_ROOT/../gcc-riscv64-unknown-elf" ]]; then
+    export EH2_BUNDLE_ROOT="$(_eh2_realpath_dir "$EH2_PROJ_ROOT/..")"
+  else
+    export EH2_BUNDLE_ROOT="$EH2_PROJ_ROOT"
+  fi
+fi
+
+export EH2_DEVTOOLSET_ROOT="${EH2_DEVTOOLSET_ROOT:-$EH2_BUNDLE_ROOT/toolchains/devtoolset-9/opt/rh/devtoolset-9/root/usr}"
+export WHISPER_BOOST_ROOT="${WHISPER_BOOST_ROOT:-$EH2_BUNDLE_ROOT/toolchains/boost-gcc9}"
+export RISCV_TOOLCHAIN_ROOT="${RISCV_TOOLCHAIN_ROOT:-$EH2_BUNDLE_ROOT/gcc-riscv64-unknown-elf}"
+
+export CAC_CXX="${CAC_CXX:-$EH2_DEVTOOLSET_ROOT/bin/g++}"
+export WHISPER_CXX="${WHISPER_CXX:-$EH2_DEVTOOLSET_ROOT/bin/g++}"
+export RISCV_PREFIX="${RISCV_PREFIX:-$RISCV_TOOLCHAIN_ROOT/bin/riscv64-unknown-elf-}"
+
+_eh2_prepend_path PATH "$RISCV_TOOLCHAIN_ROOT/bin"
+_eh2_prepend_path PATH "$EH2_DEVTOOLSET_ROOT/bin"
+_eh2_prepend_path PATH "$EH2_BUNDLE_ROOT/bin"
+
+_eh2_prepend_path LD_LIBRARY_PATH "$EH2_DEVTOOLSET_ROOT/lib64"
+_eh2_prepend_path LD_LIBRARY_PATH "$EH2_DEVTOOLSET_ROOT/lib"
+_eh2_prepend_path LD_LIBRARY_PATH "$WHISPER_BOOST_ROOT/lib"
+_eh2_prepend_path LD_LIBRARY_PATH "$EH2_BUNDLE_ROOT/lib"
+
+# Compatibility for legacy scripts that still probe riscv32-unknown-elf-*.
+# The bundled riscv64-unknown-elf toolchain has rv32 multilibs, so these
+# links are only command-name adapters.
+if [[ -x "$RISCV_TOOLCHAIN_ROOT/bin/riscv64-unknown-elf-gcc" ]]; then
+  _eh2_compat_root="$EH2_PROJ_ROOT/build/riscv32-compat"
+  _eh2_compat_bin="$_eh2_compat_root/bin"
+  mkdir -p "$_eh2_compat_bin"
+  for _tool in gcc g++ cpp objcopy objdump as ld ar ranlib strip nm readelf size; do
+    if [[ -x "$RISCV_TOOLCHAIN_ROOT/bin/riscv64-unknown-elf-$_tool" ]]; then
+      ln -sfn "$RISCV_TOOLCHAIN_ROOT/bin/riscv64-unknown-elf-$_tool" \
+        "$_eh2_compat_bin/riscv32-unknown-elf-$_tool"
+    fi
+  done
+  export GCC_PREFIX="$_eh2_compat_root"
+  _eh2_prepend_path PATH "$_eh2_compat_bin"
+fi
+
+# Infer simulator roots when the EDA environment has already put tools in PATH.
+if [[ -z "${VCS_HOME:-}" ]] && command -v vcs >/dev/null 2>&1; then
+  _eh2_vcs_bin="$(dirname "$(command -v vcs)")"
+  export VCS_HOME="$(_eh2_realpath_dir "$_eh2_vcs_bin/..")"
+fi
+
+if [[ -z "${NC_INSTALL:-}" ]] && command -v irun >/dev/null 2>&1; then
+  _eh2_irun_bin="$(dirname "$(command -v irun)")"
+  if [[ -d "$_eh2_irun_bin/../.." ]]; then
+    export NC_INSTALL="$(_eh2_realpath_dir "$_eh2_irun_bin/../..")"
+  fi
+fi
+
+if [[ -z "${SVDPI_INCLUDE:-}" ]]; then
+  if [[ -n "${NC_INSTALL:-}" && -f "$NC_INSTALL/tools/include/svdpi.h" ]]; then
+    export SVDPI_INCLUDE="$NC_INSTALL/tools/include/svdpi.h"
+  elif [[ -n "${VCS_HOME:-}" && -f "$VCS_HOME/include/svdpi.h" ]]; then
+    export SVDPI_INCLUDE="$VCS_HOME/include/svdpi.h"
+  fi
+fi
+
+echo "[eh2] EH2_PROJ_ROOT=$EH2_PROJ_ROOT"
+echo "[eh2] EH2_BUNDLE_ROOT=$EH2_BUNDLE_ROOT"
+echo "[eh2] RISCV_PREFIX=$RISCV_PREFIX"
+echo "[eh2] GCC_PREFIX=${GCC_PREFIX:-<unset>}"
+echo "[eh2] CAC_CXX=$CAC_CXX"
+echo "[eh2] WHISPER_CXX=$WHISPER_CXX"
+echo "[eh2] WHISPER_BOOST_ROOT=$WHISPER_BOOST_ROOT"
+echo "[eh2] VCS_HOME=${VCS_HOME:-<unset>}"
+echo "[eh2] NC_INSTALL=${NC_INSTALL:-<unset>}"
+echo "[eh2] SVDPI_INCLUDE=${SVDPI_INCLUDE:-<unset>}"
+
+unset -f _eh2_prepend_path
+unset -f _eh2_realpath_dir
+unset _eh2_compat_root _eh2_compat_bin _eh2_irun_bin _eh2_vcs_bin _tool

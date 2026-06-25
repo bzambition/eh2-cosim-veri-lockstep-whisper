@@ -16,6 +16,7 @@ import yaml
 from pathlib import Path
 from metadata import RegressionMetadata
 from test_entry import read_test_dot_seed
+import render_config_template
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -73,8 +74,26 @@ def write_overlay_testlist(work_dir: str, test_name: str,
     return overlay_path
 
 
+def prepare_custom_target(work_dir: str, config: str = "default") -> str:
+    """Create a per-run EH2 custom target rendered for the selected config."""
+    custom_target = os.path.join(work_dir, "riscv_dv_custom_target")
+    if os.path.exists(custom_target):
+        shutil.rmtree(custom_target)
+    shutil.copytree(EXT_DIR, custom_target)
+
+    template = os.path.join(EXT_DIR, "riscv_core_setting.tpl.sv")
+    if os.path.exists(template):
+        rendered = render_config_template.render_template(config, template)
+        setting = os.path.join(custom_target, "riscv_core_setting.sv")
+        with open(setting, "w", encoding="utf-8") as f:
+            f.write(rendered)
+
+    return custom_target
+
+
 def run_instr_gen(riscv_dv_dir: str, work_dir: str, test_name: str,
-                  gen_opts: str, seed: int, iterations: int = 1) -> bool:
+                  gen_opts: str, seed: int, iterations: int = 1,
+                  config: str = "default") -> bool:
     """
     Run riscv-dv instruction generator.
 
@@ -117,7 +136,8 @@ def run_instr_gen(riscv_dv_dir: str, work_dir: str, test_name: str,
 
     # Add custom extension
     if os.path.exists(os.path.join(EXT_DIR, "user_extension.svh")):
-        cmd.extend(["--custom_target", EXT_DIR])
+        cmd.extend(["--custom_target",
+                    prepare_custom_target(work_dir, config)])
 
     print(f"Running instruction generator: {' '.join(cmd)}")
 
@@ -163,9 +183,13 @@ def run_from_metadata(dir_metadata: str, test_dot_seed: str) -> bool:
     # produce a YAML scalar with the value concatenated twice.
     extra_gen_opts = md.gen_opts or ""
 
-    return run_instr_gen(
+    args = [
         str(Path(md.eh2_root) / "vendor" / "google_riscv-dv"),
-        str(work_dir), test_name, extra_gen_opts, seed, 1)
+        str(work_dir), test_name, extra_gen_opts, seed, 1,
+    ]
+    if md.eh2_config != "default":
+        return run_instr_gen(*args, config=md.eh2_config)
+    return run_instr_gen(*args)
 
 
 def main():
@@ -174,6 +198,8 @@ def main():
     parser.add_argument("--work-dir", default="", help="Working directory")
     parser.add_argument("--test", default="", help="Test name")
     parser.add_argument("--gen-opts", default="", help="Generator options")
+    parser.add_argument("--config", default="default",
+                        help="EH2 configuration")
     parser.add_argument("--seed", type=int, default=1, help="Random seed")
     parser.add_argument("--iterations", type=int, default=1, help="Iterations")
     parser.add_argument("--dir-metadata", default="",
@@ -198,7 +224,7 @@ def main():
 
     success = run_instr_gen(
         args.riscv_dv_dir, args.work_dir, args.test,
-        args.gen_opts, args.seed, args.iterations
+        args.gen_opts, args.seed, args.iterations, args.config
     )
     sys.exit(0 if success else 1)
 

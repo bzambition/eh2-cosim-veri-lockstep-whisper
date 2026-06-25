@@ -29,3 +29,8 @@ __pycache__/
 /issfinal.log
 verdiLog/
 novas_*
+novas.conf
+novas.rc
+.simvision/
+waves.shm/
+*.vpd

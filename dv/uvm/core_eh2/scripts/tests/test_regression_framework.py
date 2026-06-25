@@ -435,6 +435,16 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("+UVM_TR_RECORD", cmd)
         self.assertIn("-ucli -do", cmd)
 
+    def test_vcs_wave_script_dumps_rtl_fsdb_into_test_dir(self):
+        script = Path(__file__).resolve().parents[2] / "vcs.tcl"
+        text = script.read_text(encoding="utf-8")
+
+        self.assertIn("SIM_DIR", text)
+        self.assertIn('fsdbDumpfile "${sim_dir}/waves.fsdb"', text)
+        self.assertIn("fsdbDumpvars 0 core_eh2_tb_top +all", text)
+        self.assertIn("run", text)
+        self.assertIn("quit", text)
+
     def test_run_rtl_skips_compile_when_simv_exists(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -811,6 +821,17 @@ class RegressionFrameworkTest(unittest.TestCase):
             self.assertIn("+instr_cnt=10",
                           testlist.read_text(encoding="utf-8"))
 
+    def test_run_instr_gen_renders_custom_target_for_dual_thread(self):
+        with tempfile.TemporaryDirectory() as td:
+            custom_target = run_instr_gen.prepare_custom_target(
+                td, "dual_thread")
+
+            setting = (Path(custom_target) /
+                       "riscv_core_setting.sv").read_text(encoding="utf-8")
+            self.assertIn("parameter int NUM_HARTS = 2;", setting)
+            self.assertTrue((Path(custom_target) /
+                             "user_extension.svh").exists())
+
     def test_run_instr_gen_enables_eh2_asm_generator_override(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -950,8 +971,9 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertNotIn("void'(hart);", program_gen)
         self.assertNotIn("virtual function void init_custom_csr(int hart);",
                          program_gen)
-        self.assertIn('instr_stream.push_back({indent, "j main"});',
-                      program_gen)
+        self.assertIn(
+            'instr_stream.push_back($sformatf("%0sj h%0d_main", indent, hart));',
+            program_gen)
 
     def test_eh2_asm_program_gen_keeps_trap_stack_in_mscratch(self):
         program_gen = (SCRIPT_DIR.parent / "riscv_dv_extension" /
@@ -1107,6 +1129,30 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("RVVI_NHART := $(if $(IS_DUAL_THREAD_CONFIG),2,1)",
                       makefile)
         self.assertIn("+define+RVVI_NHART=$(RVVI_NHART)", makefile)
+
+    def test_make_regress_and_signoff_forward_riscvdv_config(self):
+        root = SCRIPT_DIR.parents[3]
+        makefile = (root / "Makefile").read_text(encoding="utf-8")
+
+        self.assertIn("RISCV_DV_CONFIG ?= $(CONFIG)", makefile)
+        self.assertGreaterEqual(
+            makefile.count("--config $(RISCV_DV_CONFIG)"), 2)
+
+    def test_dual_thread_regression_opts_add_hart_plusargs(self):
+        gen_opts, sim_opts = run_regress.apply_config_plusargs(
+            "dual_thread", "+instr_cnt=20", "+cosim_arch_checker")
+
+        self.assertIn("+num_of_harts=2", gen_opts)
+        self.assertIn("+rvvi_nhart=2", sim_opts)
+
+        gen_opts, sim_opts = run_regress.apply_config_plusargs(
+            "dual_thread",
+            "+instr_cnt=20 +num_of_harts=4",
+            "+rvvi_nhart=4")
+        self.assertIn("+num_of_harts=4", gen_opts)
+        self.assertNotIn("+num_of_harts=2", gen_opts)
+        self.assertIn("+rvvi_nhart=4", sim_opts)
+        self.assertNotIn("+rvvi_nhart=2", sim_opts)
 
     def test_adapter_and_top_route_per_hart_sidebands(self):
         tb_top = (SCRIPT_DIR.parent / "tb" /
@@ -2896,6 +2942,23 @@ class RegressionFrameworkTest(unittest.TestCase):
         self.assertIn("+whisper_path=vendor/whisper/build-Linux/whisper", text)
         self.assertIn("+whisper_json_path=rtl/snapshots/default/whisper.json", text)
         self.assertNotIn("--disable-trace-" + "compare", cmd)
+
+    def test_signoff_forwards_config_to_regress_stages(self):
+        class Args:
+            simulator = "vcs"
+            seed = 1
+            parallel = 1
+            coverage = False
+            waves = False
+            allow_warnings = True
+            iterations = 0
+            config = "dual_thread"
+
+        cmd = signoff.build_stage_cmd(
+            "riscvdv", Args, Path("/tmp/out"), Path("/tmp/build/simv"))
+
+        self.assertIn("--config", cmd)
+        self.assertEqual(cmd[cmd.index("--config") + 1], "dual_thread")
 
     def test_signoff_dry_run_lists_ibex_style_stages(self):
         with tempfile.TemporaryDirectory() as td:

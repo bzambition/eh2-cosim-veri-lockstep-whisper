@@ -42,6 +42,7 @@ DV_DIR = os.path.dirname(SCRIPT_DIR)
 EH2_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(DV_DIR)))
 RISCV_DV_DIR = os.path.join(EH2_ROOT, "vendor", "google_riscv-dv")
 DEFAULT_TESTLIST = os.path.join(DV_DIR, "riscv_dv_extension", "testlist.yaml")
+DUAL_THREAD_CONFIGS = {"dual_thread", "default_mt"}
 
 
 def find_test_entry(testlist: list, test_name: str) -> dict:
@@ -125,6 +126,33 @@ def build_sim_opts(test_entry: dict, cli_sim_opts: str = "") -> str:
 
     sim_opts = " ".join(piece for piece in pieces if piece).strip()
     return add_instr_count_runtime_budget(test_entry, sim_opts)
+
+
+def has_plusarg(opts: str, name: str) -> bool:
+    return bool(re.search(r"(?:^|\s)\+{}(?:=|\s|$)".
+                          format(re.escape(name)), opts or ""))
+
+
+def append_plusarg_once(opts: str, plusarg: str, name: str) -> str:
+    opts = (opts or "").strip()
+    if has_plusarg(opts, name):
+        return opts
+    return " ".join(piece for piece in [opts, plusarg] if piece).strip()
+
+
+def is_dual_thread_config(config: str) -> bool:
+    return config in DUAL_THREAD_CONFIGS
+
+
+def apply_config_plusargs(config: str, gen_opts: str,
+                          sim_opts: str) -> tuple:
+    if not is_dual_thread_config(config):
+        return gen_opts, sim_opts
+    gen_opts = append_plusarg_once(gen_opts, "+num_of_harts=2",
+                                   "num_of_harts")
+    sim_opts = append_plusarg_once(sim_opts, "+rvvi_nhart=2",
+                                   "rvvi_nhart")
+    return gen_opts, sim_opts
 
 
 def _plusarg_int(text: str, name: str):
@@ -317,7 +345,8 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
                     coverage: bool = False,
                     waves: bool = False,
                     fail_on_warnings: bool = False,
-                    build_dir: str = None) -> TestRunResult:
+                    build_dir: str = None,
+                    config: str = "default") -> TestRunResult:
     """
     Run a single test: generate, compile, simulate, check.
 
@@ -340,6 +369,7 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
     gen_opts = test_entry.get("gen_opts", "")
     rtl_test = test_entry.get("rtl_test", "core_eh2_base_test")
     sim_opts = build_sim_opts(test_entry, cli_sim_opts)
+    gen_opts, sim_opts = apply_config_plusargs(config, gen_opts, sim_opts)
 
     directed_asm = test_entry.get("asm", "") or test_entry.get("test_srcs", "")
     if directed_asm and not os.path.isabs(directed_asm):
@@ -354,6 +384,7 @@ def run_single_test(test_entry: dict, seed: int, simulator: str,
             "--work-dir", work_dir,
             "--test", test_name,
             "--gen-opts", gen_opts,
+            "--config", config,
             "--seed", str(seed),
         ]
         try:
@@ -552,6 +583,7 @@ def run_regression(args) -> RegressionSummary:
 
     # Run tests (sequential for now, parallel later)
     max_workers = args.parallel if hasattr(args, 'parallel') else 1
+    config = getattr(args, "config", "default")
     if max_workers > 1:
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = {}
@@ -560,7 +592,7 @@ def run_regression(args) -> RegressionSummary:
                     run_single_test, entry, seed, args.simulator,
                     output_dir, args.binary, args.sim_opts,
                     args.coverage, args.waves, args.fail_on_warnings,
-                    args.build_dir
+                    args.build_dir, config
                 )
                 futures[future] = (entry["test"], seed)
 
@@ -580,7 +612,8 @@ def run_regression(args) -> RegressionSummary:
             result = run_single_test(entry, seed, args.simulator,
                                      output_dir, args.binary, args.sim_opts,
                                      args.coverage, args.waves,
-                                     args.fail_on_warnings, args.build_dir)
+                                     args.fail_on_warnings, args.build_dir,
+                                     config)
             summary.add_result(result)
             status = "PASS" if result.passed else "FAIL"
             print(f"[{status}] {test_name} seed={seed} "
@@ -662,6 +695,8 @@ Examples:
     parser.add_argument("--seed", type=int, help="Override random seed")
 
     # Test configuration
+    parser.add_argument("--config", default="default",
+                        help="EH2 configuration")
     parser.add_argument("--rtl-test", default="",
                         help="UVM test class")
     parser.add_argument("--gen-opts", default="", help="Generator options")

@@ -78,7 +78,7 @@ interface axi4_intf #(
   // Clocking block for response driver (slave side)
   // Drives responses to master requests
   clocking resp_driver_cb @(posedge clk);
-    default input #1 output #1;
+    default input #1 ;
 
     // Input: master requests
     input awid, awaddr, awregion, awlen, awsize, awburst;
@@ -90,26 +90,26 @@ interface axi4_intf #(
     input rready;
 
     // Output: slave responses
-    output awready;
-    output wready;
-    output bid, bresp, bvalid;
-    output arready;
-    output rid, rdata, rresp, rlast, rvalid;
+    input awready;
+    input wready;
+    input bid, bresp, bvalid;
+    input arready;
+    input rid, rdata, rresp, rlast, rvalid;
   endclocking
 
   // Clocking block for master driver
   // Drives master requests
   clocking master_driver_cb @(posedge clk);
-    default input #1 output #1;
+    default input #1;
 
     // Output: master requests
-    output awid, awaddr, awregion, awlen, awsize, awburst;
-    output awlock, awcache, awprot, awqos, awvalid;
-    output wdata, wstrb, wlast, wvalid;
-    output bready;
-    output arid, araddr, arregion, arlen, arsize, arburst;
-    output arlock, arcache, arprot, arqos, arvalid;
-    output rready;
+    input awid, awaddr, awregion, awlen, awsize, awburst;
+    input awlock, awcache, awprot, awqos, awvalid;
+    input wdata, wstrb, wlast, wvalid;
+    input bready;
+    input arid, araddr, arregion, arlen, arsize, arburst;
+    input arlock, arcache, arprot, arqos, arvalid;
+    input rready;
 
     // Input: slave responses
     input awready;

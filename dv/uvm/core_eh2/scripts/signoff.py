@@ -209,8 +209,10 @@ def precheck(stages: List[str], simulator: str, output_dir: Path,
 
 def build_stage_cmd(stage: str, args, stage_out: Path, simv_path: Path) -> List[str]:
     run_regress = SCRIPT_DIR / "run_regress.py"
+    config = getattr(args, "config", "default")
     cmd = [sys.executable, str(run_regress),
            "--simulator", args.simulator,
+           "--config", config,
            "--seed", str(args.seed),
            "--build-dir", str(simv_path.parent),
            "--output", str(stage_out)]
@@ -1076,6 +1078,8 @@ def main(argv=None) -> int:
                         help="Only evaluate --stage-result directories")
     parser.add_argument("--simulator", default="vcs",
                         choices=["vcs", "nc", "xlm", "questa"])
+    parser.add_argument("--config", default="default",
+                        help="EH2 configuration")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--iterations", type=int, default=0,
                         help="Override per-test iterations for non-smoke stages")

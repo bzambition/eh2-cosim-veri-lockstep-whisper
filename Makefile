@@ -55,6 +55,7 @@ CLEAN_PRESERVE_FIND  := $(foreach n,$(CLEAN_PRESERVE_BUILD),! -name '$(n)') ! -n
 # 用户可覆盖变量（详见 make help）
 # ============================================================
 CONFIG          ?= default
+RISCV_DV_CONFIG ?= $(CONFIG)
 SEED            ?= 1
 TEST            ?=
 TESTLIST        ?= riscvdv
@@ -545,6 +546,7 @@ regress:
 	@echo "=== [regress] testlist=$(TESTLIST) parallel=$(PARALLEL) iter=$(if $(ITERATIONS),$(ITERATIONS),testlist) ==="
 	$(SIM_ENV) python3 $(SCRIPTS_DIR)/run_regress.py \
 	  $(if $(TEST),--test $(TEST) --testlist $(TESTLIST_PATH),--testlist $(TESTLIST_PATH)) \
+	  --config $(RISCV_DV_CONFIG) \
 	  --simulator $(SIMULATOR) --seed $(SEED) \
 	  $(if $(ITERATIONS),--iterations $(ITERATIONS),) --parallel $(PARALLEL) \
 	  --sim-opts "$(SIM_OPTS) $(LOCKSTEP_SIM_OPTS)" \
@@ -632,6 +634,7 @@ signoff:
 	@echo "=== [signoff] profile=$(PROFILE) gate_only=$(GATE_ONLY) out=$(SIGNOFF_OUT) ==="
 	$(SIM_ENV) python3 $(SCRIPTS_DIR)/signoff.py \
 	  --profile $(PROFILE) --simulator $(SIMULATOR) \
+	  --config $(RISCV_DV_CONFIG) \
 	  --seed $(SEED) --parallel $(PARALLEL) --output $(SIGNOFF_OUT) \
 	  $(if $(filter 1,$(GATE_ONLY)),--gate-only,) \
 	  $(if $(SIGNOFF_ITERATIONS),--iterations $(SIGNOFF_ITERATIONS),) \

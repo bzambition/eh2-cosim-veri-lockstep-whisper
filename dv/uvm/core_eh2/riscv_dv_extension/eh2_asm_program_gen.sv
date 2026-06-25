@@ -268,7 +268,7 @@ class eh2_asm_program_gen extends riscv_asm_program_gen;
   virtual function void gen_init_section(int hart);
     super.gen_init_section(hart);
     init_eh2_custom_csr(hart);
-    instr_stream.push_back({indent, "j main"});
+    instr_stream.push_back($sformatf("%0sj h%0d_main", indent, hart));
     gen_nmi_handler(hart);
     gen_eh2_kernel_sp_slot(hart);
   endfunction
